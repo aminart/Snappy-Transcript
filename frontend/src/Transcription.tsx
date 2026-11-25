@@ -1,16 +1,14 @@
 import React from "react";
 import { api, envoyerFichier, messageErreur } from "./api";
-import { DiarizationPanel } from "./components/DiarizationPanel";
-import { type ChoixFichier, FilePicker } from "./components/FilePicker";
 import { avecApplication, ecouteDe } from "./components/ChoixSource";
-import { SettingsPanel } from "./components/SettingsPanel";
-import { Resultat } from "./components/Resultat";
-import { Alerte, Progression, Section } from "./components/ui";
-import { LIBELLES_STATUT, duree, hms } from "./format";
-import type { Applications, AvancementFichier, Capabilities, Cuda, Devices, Mode, ModeleEquipe, Niveau, Segment, Settings, SessionState, Verification } from "./types";
+import { DiarizationPanel } from "./components/DiarizationPanel";
+import { EnDirect } from "./components/EnDirect";
+import { type ChoixFichier, FilePicker } from "./components/FilePicker";
+import { type Apercu, Pret, ReglagesAvances, useBlocModele } from "./components/Pret";
+import { ResultatPage } from "./components/ResultatPage";
+import { Alerte } from "./components/ui";
+import type { Applications, Capabilities, Cuda, Devices, Mode, ModeleEquipe, Niveau, Settings, SessionState, Verification } from "./types";
 import { useSession } from "./useSession";
-
-const LIGNES_AFFICHEES = 400;
 
 /** Réglages mémorisés côté serveur : chaque changement est enregistré après une courte pause de frappe. */
 function useReglages() {
@@ -49,37 +47,6 @@ function useVerification(url: string, chemin: string): Verification | null {
   return resultat;
 }
 
-const Direct: React.FC<{ segments: Segment[]; horodatage: boolean }> = ({ segments, horodatage }) => {
-  const zone = React.useRef<HTMLDivElement>(null);
-  const colle = React.useRef(true); // reste collé en bas, sauf si la personne remonte lire
-  const visibles = segments.length > LIGNES_AFFICHEES ? segments.slice(-LIGNES_AFFICHEES) : segments;
-
-  React.useLayoutEffect(() => {
-    const z = zone.current;
-    if (z && colle.current) z.scrollTop = z.scrollHeight;
-  }, [segments]);
-
-  return (
-    <div>
-      {segments.length > LIGNES_AFFICHEES && (
-        <p className="m-0 mb-2 text-[13px] text-ink-muted">Seules les {LIGNES_AFFICHEES} dernières phrases sont affichées pendant l'enregistrement ; tout le texte sera là à la fin.</p>
-      )}
-      <div ref={zone} tabIndex={0} aria-label="Transcription en direct"
-        onScroll={(e) => { const z = e.currentTarget; colle.current = z.scrollTop + z.clientHeight >= z.scrollHeight - 40; }}
-        className="nn-card max-h-[460px] min-h-[200px] overflow-auto p-4 text-[15px] leading-relaxed text-ink">
-        {visibles.length === 0 ? (
-          <span className="text-ink-muted">Le texte apparaît ici quelques secondes après qu'on a parlé…</span>
-        ) : visibles.map((s, i) => (
-          <p key={segments.length - visibles.length + i} className="m-0 mb-1.5 grid grid-cols-[auto_1fr] gap-3">
-            {horodatage ? <span className="select-none pt-0.5 font-mono text-xs text-ink-subtle">{hms(s.start)}</span> : <span />}
-            <span>{s.speaker && <strong className="font-semibold">{s.speaker} : </strong>}{s.text}</span>
-          </p>
-        ))}
-      </div>
-    </div>
-  );
-};
-
 /** Annonce aux lecteurs d'écran la fin de la transcription et de l'identification des intervenants. */
 function useAnnonce(state: SessionState | null): string {
   const [annonce, setAnnonce] = React.useState("");
@@ -100,71 +67,108 @@ function useAnnonce(state: SessionState | null): string {
   return annonce;
 }
 
-/** Applications qui utilisent le son, rafraîchies toutes les 2 s tant que le choix de la source est ouvert. */
+/** Interroge une adresse à intervalle régulier tant que `actif` (vu-mètre, liste des applications…). */
+function useSondage<T>(actif: boolean, url: string, delai: number): T | null {
+  const [valeur, setValeur] = React.useState<T | null>(null);
+  React.useEffect(() => {
+    if (!actif) { setValeur(null); return; }
+    let arrete = false;
+    const boucle = async () => {
+      while (!arrete) {
+        try { const v = await api<T>(url); if (!arrete) setValeur(v); } catch { /* serveur occupé : on réessaie */ }
+        await new Promise((r) => setTimeout(r, delai));
+      }
+    };
+    boucle();
+    return () => { arrete = true; };
+  }, [actif, url, delai]);
+  return valeur;
+}
+
+/** Applications qui utilisent le son : gardées entre deux sondages (la liste ne clignote pas). */
 function useApplications(actif: boolean): Applications | null {
-  const [apps, setApps] = React.useState<Applications | null>(null);
-  React.useEffect(() => {
-    if (!actif) return;
-    let arrete = false;
-    const boucle = async () => {
-      while (!arrete) {
-        try { const a = await api<Applications>("/api/audio-apps"); if (!arrete) setApps(a); } catch { /* on réessaie */ }
-        await new Promise((r) => setTimeout(r, 2000));
-      }
-    };
-    boucle();
-    return () => { arrete = true; };
-  }, [actif]);
-  return apps;
+  const valeur = useSondage<Applications>(actif, "/api/audio-apps", 2000);
+  const dernier = React.useRef<Applications | null>(null);
+  if (valeur) dernier.current = valeur;
+  return valeur ?? dernier.current;
 }
 
-/** Niveau du son reçu, plusieurs fois par seconde, et alerte si plus rien n'arrive. */
-function useNiveau(actif: boolean): Niveau {
-  const [niveau, setNiveau] = React.useState<Niveau>({ level: null, silence: 0 });
+/**
+ * Test de la source avant de démarrer : le serveur ouvre micro et / ou application sans rien enregistrer.
+ * Fermé dès que la page n'est plus au premier plan, au démarrage, ou si les réglages changent.
+ */
+function useApercu(actif: boolean, corps: Record<string, unknown>): Apercu | null {
+  const [etat, setEtat] = React.useState<Apercu | null>(null);
+  const [visible, setVisible] = React.useState(() => document.visibilityState === "visible");
   React.useEffect(() => {
-    if (!actif) { setNiveau({ level: null, silence: 0 }); return; }
+    const suivre = () => setVisible(document.visibilityState === "visible");
+    document.addEventListener("visibilitychange", suivre);
+    return () => document.removeEventListener("visibilitychange", suivre);
+  }, []);
+  const cle = JSON.stringify(corps);
+  React.useEffect(() => {
+    if (!actif || !visible) { setEtat(null); return; }
     let arrete = false;
-    const boucle = async () => {
+    const t = setTimeout(async () => {
+      try { await api("/api/preview", { method: "POST", json: JSON.parse(cle) }); }
+      catch (e) { if (!arrete) setEtat({ active: false, erreur: messageErreur(e) }); return; }
       while (!arrete) {
-        try { setNiveau(await api<Niveau>("/api/session/level")); } catch { /* serveur occupé : on réessaie */ }
-        await new Promise((r) => setTimeout(r, 150));
+        try { const e = await api<Apercu>("/api/preview"); if (!arrete) setEtat(e); } catch { /* on réessaie */ }
+        await new Promise((r) => setTimeout(r, 200));
       }
-    };
-    boucle();
-    return () => { arrete = true; };
-  }, [actif]);
-  return niveau;
+    }, 350);
+    return () => { arrete = true; clearTimeout(t); };
+  }, [actif, visible, cle]);
+  React.useEffect(() => {
+    if (!actif || !visible) api("/api/preview", { method: "DELETE" }).catch(() => undefined);
+  }, [actif, visible]);
+  React.useEffect(() => () => { api("/api/preview", { method: "DELETE" }).catch(() => undefined); }, []);
+  return etat;
 }
 
-const VuMetre: React.FC<{ niveau: number }> = ({ niveau }) => {
-  const pct = Math.round(niveau * 100);
-  return (
-    <div className="flex items-center gap-2" title="Niveau du son reçu">
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" className="shrink-0 text-ink-muted" aria-hidden="true">
-        <rect x="9" y="3" width="6" height="11" rx="3" /><path d="M5 11a7 7 0 0 0 14 0M12 18v3" />
-      </svg>
-      <div role="meter" aria-label="Niveau du son reçu" aria-valuemin={0} aria-valuemax={100} aria-valuenow={pct}
-        className="h-2 w-28 overflow-hidden rounded-full bg-surface-3">
-        <div className={`h-full rounded-full transition-[width] duration-100 ${niveau > 0.92 ? "bg-warning" : "bg-success"}`} style={{ width: `${pct}%` }} />
-      </div>
-    </div>
-  );
-};
+const MODES: { id: Mode; titre: string; detail: string; icone: React.ReactNode }[] = [
+  {
+    id: "live", titre: "En direct", detail: "Micro ou son du PC, pendant une réunion",
+    icone: <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+      <rect x="9" y="3" width="6" height="11" rx="3" /><path d="M5 11a7 7 0 0 0 14 0M12 18v3" /></svg>,
+  },
+  {
+    id: "file", titre: "Depuis un fichier", detail: "Un enregistrement audio ou une vidéo",
+    icone: <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" /><path d="M14 3v5h5M10 17v-5l4 2.5z" /></svg>,
+  },
+];
 
-const AvancementFichierVue: React.FC<{ etat: SessionState; avancement: AvancementFichier }> = ({ etat, avancement: a }) => {
-  const pct = a.fraction === null ? null : Math.round(a.fraction * 100);
-  const etape = a.phase === "decoding" ? "Lecture du fichier" : a.phase === "transcribing" ? "Transcription" : "Terminé";
-  const details = [
-    pct !== null && a.phase !== "done" ? `${pct} %` : "",
-    etat.paused ? "en pause" : a.eta !== null ? `reste environ ${duree(a.eta)}` : "",
-  ].filter(Boolean).join(" · ");
+/** Premier choix de la page : grand sélecteur à deux options (groupe de boutons radio, flèches gauche / droite). */
+const ChoixMode: React.FC<{ mode: Mode; changer: (m: Mode) => void; bloque: boolean }> = ({ mode, changer, bloque }) => {
+  const boutons = React.useRef<(HTMLButtonElement | null)[]>([]);
+  const clavier = (e: React.KeyboardEvent, i: number) => {
+    if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(e.key) || bloque) return;
+    e.preventDefault();
+    const j = (i + (e.key === "ArrowLeft" || e.key === "ArrowUp" ? -1 : 1) + MODES.length) % MODES.length;
+    changer(MODES[j].id);
+    boutons.current[j]?.focus();
+  };
   return (
-    <div className="flex min-w-0 flex-col gap-2">
-      <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <span className="min-w-0 break-all text-sm font-medium text-ink">{a.name}</span>
-        <span className="text-[13px] text-ink-muted">{a.media_duration ? `Durée ${hms(a.media_duration)}` : ""}</span>
-      </div>
-      {!etat.finalized && <Progression fraction={a.fraction} libelle={`${etape}${details ? ` · ${details}` : ""}`} />}
+    <div role="radiogroup" aria-label="Que voulez-vous transcrire ?" title={bloque ? "Terminez la session en cours pour changer" : undefined}
+      className="grid w-full max-w-[760px] grid-cols-2 gap-1.5 rounded-lg border border-line bg-surface-2 p-1.5">
+      {MODES.map((m, i) => {
+        const actif = mode === m.id;
+        return (
+          <button key={m.id} ref={(el) => { boutons.current[i] = el; }} type="button" role="radio" aria-checked={actif}
+            tabIndex={actif ? 0 : -1} disabled={bloque && !actif} onClick={() => !bloque && changer(m.id)} onKeyDown={(e) => clavier(e, i)}
+            className={`flex min-w-0 items-center gap-3 rounded-md border px-3 py-3 text-left transition-colors sm:px-4
+              focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus
+              ${actif ? "border-accent bg-surface text-ink shadow-sm" : "border-transparent bg-transparent text-ink-muted hover:bg-surface-3"}
+              disabled:cursor-not-allowed disabled:opacity-50`}>
+            <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-md ${actif ? "bg-accent-soft text-accent" : "bg-surface-3 text-ink-subtle"}`}>{m.icone}</span>
+            <span className="flex min-w-0 flex-col">
+              <span className={`text-[16px] font-semibold leading-tight ${actif ? "text-ink" : "text-ink-body"}`}>{m.titre}</span>
+              <span className="mt-0.5 hidden text-[13px] leading-snug text-ink-muted sm:block">{m.detail}</span>
+            </span>
+          </button>
+        );
+      })}
     </div>
   );
 };
@@ -197,60 +201,11 @@ const Diagnostic: React.FC<{ etat: SessionState }> = ({ etat }) => {
   );
 };
 
-const MODES: { id: Mode; titre: string; detail: string; icone: React.ReactNode }[] = [
-  {
-    id: "live", titre: "En direct", detail: "Micro ou son du PC, pendant une réunion",
-    icone: <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
-      <rect x="9" y="3" width="6" height="11" rx="3" /><path d="M5 11a7 7 0 0 0 14 0M12 18v3" /></svg>,
-  },
-  {
-    id: "file", titre: "Depuis un fichier", detail: "Un enregistrement audio ou une vidéo",
-    icone: <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" /><path d="M14 3v5h5M10 17v-5l4 2.5z" /></svg>,
-  },
-];
-
-/** Premier choix de la page : grand sélecteur à deux options (groupe de boutons radio, flèches gauche / droite). */
-const ChoixMode: React.FC<{ mode: Mode; changer: (m: Mode) => void; bloque: boolean }> = ({ mode, changer, bloque }) => {
-  const boutons = React.useRef<(HTMLButtonElement | null)[]>([]);
-  const clavier = (e: React.KeyboardEvent, i: number) => {
-    if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(e.key) || bloque) return;
-    e.preventDefault();
-    const j = (i + (e.key === "ArrowLeft" || e.key === "ArrowUp" ? -1 : 1) + MODES.length) % MODES.length;
-    changer(MODES[j].id);
-    boutons.current[j]?.focus();
-  };
-  return (
-    <div role="radiogroup" aria-label="Que voulez-vous transcrire ?"
-      title={bloque ? "Terminez la session en cours pour changer" : undefined}
-      className="mt-5 grid w-full max-w-[760px] grid-cols-2 gap-1.5 rounded-lg border border-line bg-surface-2 p-1.5">
-      {MODES.map((m, i) => {
-        const actif = mode === m.id;
-        return (
-          <button key={m.id} ref={(el) => { boutons.current[i] = el; }} type="button" role="radio" aria-checked={actif}
-            tabIndex={actif ? 0 : -1} disabled={bloque && !actif} onClick={() => !bloque && changer(m.id)} onKeyDown={(e) => clavier(e, i)}
-            className={`flex min-w-0 items-center gap-3 rounded-md border px-3 py-3 text-left transition-colors sm:px-4
-              focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus
-              ${actif ? "border-accent bg-surface text-ink shadow-sm" : "border-transparent bg-transparent text-ink-muted hover:bg-surface-3"}
-              disabled:cursor-not-allowed disabled:opacity-50`}>
-            <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-md ${actif ? "bg-accent-soft text-accent" : "bg-surface-3 text-ink-subtle"}`}>
-              {m.icone}
-            </span>
-            <span className="flex min-w-0 flex-col">
-              <span className={`text-[16px] font-semibold leading-tight ${actif ? "text-ink" : "text-ink-body"}`}>{m.titre}</span>
-              <span className="mt-0.5 hidden text-[13px] leading-snug text-ink-muted sm:block">{m.detail}</span>
-            </span>
-          </button>
-        );
-      })}
-    </div>
-  );
-};
-
-const SVG = { width: 16, height: 16, viewBox: "0 0 24 24", fill: "currentColor", "aria-hidden": true } as const;
-const IconeLecture = () => <svg {...SVG}><path d="M7 4.5v15l12.5-7.5z" /></svg>;
-const IconePause = () => <svg {...SVG}><rect x="6" y="4.5" width="4" height="15" rx="1" /><rect x="14" y="4.5" width="4" height="15" rx="1" /></svg>;
-const IconeArret = () => <svg {...SVG}><rect x="5.5" y="5.5" width="13" height="13" rx="2" /></svg>;
+const IconeMicro = ({ taille }: { taille: number }) => (
+  <svg width={taille} height={taille} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+    <rect x="9" y="3" width="6" height="11" rx="3" /><path d="M5 11a7 7 0 0 0 14 0M12 18v3" />
+  </svg>
+);
 
 export const Transcription: React.FC = () => {
   const { reglages, regler } = useReglages();
@@ -261,9 +216,8 @@ export const Transcription: React.FC = () => {
   const [equipe, setEquipe] = React.useState<ModeleEquipe | null | undefined>(undefined);
   const [erreur, setErreur] = React.useState("");
   const [demarrage, setDemarrage] = React.useState(false);
-  const [horodatage, setHorodatage] = React.useState(true);
   const [choix, setChoix] = React.useState<ChoixFichier>(null);
-  const [envoi, setEnvoi] = React.useState<number | null>(null); // avancement de l'envoi du fichier
+  const [envoi, setEnvoi] = React.useState<number | null>(null);
   const envoiEnCours = React.useRef<AbortController | null>(null);
 
   const actualiser = React.useCallback(() => { api<Devices>("/api/devices").then(setPeripheriques).catch(() => undefined); }, []);
@@ -278,13 +232,31 @@ export const Transcription: React.FC = () => {
   const pipeline = useVerification("/api/diarization/check", reglages?.diarization_model_path ?? "");
 
   const occupe = !!state && !state.finalized;
+  const accueil = !state;
   const enCours = occupe && !state!.stopping;
   const ecoute = enCours && state!.kind === "live" && !state!.paused;
-  const niveau = useNiveau(ecoute);
-  const applications = useApplications(!!reglages && reglages.mode === "live" && !occupe && (capacites?.system_audio ?? false));
+  const niveau = useSondage<Niveau>(ecoute, "/api/session/level", 150);
   const annonce = useAnnonce(state);
+  const live = !!reglages && reglages.mode === "live";
+  const applications = useApplications(accueil && live && (capacites?.system_audio ?? false));
 
-  // Raccourcis pendant une session : Espace = pause / reprise, Échap = arrêter (hors champs de saisie)
+  const r = reglages;
+  const entrees = peripheriques?.inputs ?? [];
+  const sorties = peripheriques?.outputs ?? [];
+  const micChoisi = r ? entrees.find((d) => d.name === r.input_device) ?? entrees[0] : undefined;
+  const avecMicro = !!r && r.source !== "system";
+  const avecSysteme = !!r && r.source !== "microphone";
+  const avecApp = !!r && avecApplication(ecouteDe(r));
+  const app = r ? applications?.apps.find((a) => a.exe === r.app) : undefined;
+  const appOuverte = !avecApp || !!app;
+  const sourcePrete = (!avecMicro || !!micChoisi) && (!avecSysteme || !!capacites?.system_audio) && appOuverte;
+  const corpsSource = {
+    source: r?.source, input_device: avecMicro ? micChoisi?.index ?? null : null,
+    output_device: r?.output_device || sorties[0]?.name || "", app: avecApp ? r?.app ?? "" : "",
+  };
+  const apercu = useApercu(accueil && live && sourcePrete && !demarrage, corpsSource);
+
+  // Raccourcis pendant une session : Espace = pause / reprise, Échap = arrêter, M = marquer (hors champs de saisie)
   const raccourcis = React.useRef<(e: KeyboardEvent) => void>(() => undefined);
   React.useEffect(() => {
     const ecouter = (e: KeyboardEvent) => raccourcis.current(e);
@@ -292,28 +264,16 @@ export const Transcription: React.FC = () => {
     return () => window.removeEventListener("keydown", ecouter);
   }, []);
 
-  if (!reglages) return <p className="m-0 text-sm text-ink-muted">Chargement…</p>;
+  const { modeleOk, bloc: blocModele } = useBlocModele(r ?? ({} as Settings), regler, capacites, equipe, modele, occupe || demarrage);
+  if (!r) return <p className="m-0 text-sm text-ink-muted">Chargement…</p>;
 
-  const r = reglages;
-  const entrees = peripheriques?.inputs ?? [];
-  const sorties = peripheriques?.outputs ?? [];
-  const micChoisi = entrees.find((d) => d.name === r.input_device) ?? entrees[0];
-  const avecMicro = r.source !== "system";
-  const avecSysteme = r.source !== "microphone";
-  const avecApp = avecApplication(ecouteDe(r));
-  const appOuverte = !avecApp || (applications?.apps.some((a) => a.exe === r.app) ?? false);
   const diarisationEnCours = state?.diarization.status === "RUNNING";
   const diarisationDispo = capacites?.diarization ?? false;
-
   const modeFichier = r.mode === "file";
   const modeleEquipe = !!equipe && !r.use_own_model;
-  const moteurPret = r.engine === "mock" || ((modeleEquipe || modele?.valid === true) && capacites?.stt !== false);
-  const sourcePrete = modeFichier
-    ? !!choix && (capacites?.files ?? false)
-    : (!avecMicro || !!micChoisi) && (!avecSysteme || !!capacites?.system_audio) && appOuverte;
-  const peutDemarrer = !occupe && !demarrage && !diarisationEnCours && sourcePrete && moteurPret;
-
-  const changerMode = (m: Mode) => { setErreur(""); regler("mode", m); };
+  const moteurPret = r.engine === "mock" || (modeleOk && capacites?.stt !== false);
+  const pret = modeFichier ? !!choix && (capacites?.files ?? false) : sourcePrete;
+  const peutDemarrer = !occupe && !demarrage && !diarisationEnCours && pret && moteurPret;
 
   const options = () => ({
     engine: r.engine, model_path: modeleEquipe ? "" : r.model_path, acceleration: r.acceleration, language: r.language, glossary: r.glossary,
@@ -338,10 +298,9 @@ export const Transcription: React.FC = () => {
     try {
       if (modeFichier) { await transcrireFichier(); return; }
       await action("/api/session/start", {
-        ...options(), source: r.source, input_device: avecMicro ? micChoisi?.index ?? null : null,
-        output_device: r.output_device || sorties[0]?.name || "", app: avecApp ? r.app : "", chunk_seconds: r.chunk_seconds,
-        overlap_seconds: Math.min(r.overlap_seconds, r.chunk_seconds - 0.5),
+        ...options(), ...corpsSource, chunk_seconds: r.chunk_seconds, overlap_seconds: Math.min(r.overlap_seconds, r.chunk_seconds - 0.5),
       });
+      window.scrollTo({ top: 0 });
     } catch (e) { if (!(e instanceof Error && e.message === "Envoi annulé.")) setErreur(messageErreur(e)); } finally { setDemarrage(false); }
   };
   const commande = (chemin: string) => async () => {
@@ -350,27 +309,42 @@ export const Transcription: React.FC = () => {
   };
   const pauseOuReprise = commande(state?.paused ? "/api/session/resume" : "/api/session/pause");
   const arreter = commande("/api/session/stop");
+  const marquer = async () => {
+    try { await api("/api/session/marks", { method: "POST", json: {} }); await rafraichir(); } catch (e) { setErreur(messageErreur(e)); }
+  };
   raccourcis.current = (e: KeyboardEvent) => {
     const cible = e.target as HTMLElement | null;
-    if (!enCours || e.ctrlKey || e.metaKey || e.altKey || (cible && /^(INPUT|TEXTAREA|SELECT|BUTTON)$/.test(cible.tagName))) return;
-    if (e.key === " ") { e.preventDefault(); pauseOuReprise(); }
+    if (!enCours || e.ctrlKey || e.metaKey || e.altKey || (cible && (/^(INPUT|TEXTAREA|SELECT)$/.test(cible.tagName) || cible.isContentEditable))) return;
+    if (e.key === " " && cible?.tagName !== "BUTTON" && cible?.tagName !== "A") { e.preventDefault(); pauseOuReprise(); } // Espace active déjà un bouton
     if (e.key === "Escape") { e.preventDefault(); arreter(); }
+    if ((e.key === "m" || e.key === "M") && state?.kind === "live" && !state.paused) { e.preventDefault(); marquer(); }
   };
   const nouvelle = async () => {
     setErreur("");
-    try { await oublier(); } catch (e) { setErreur(messageErreur(e)); }
+    try { await oublier(); window.scrollTo({ top: 0 }); } catch (e) { setErreur(messageErreur(e)); }
+  };
+  const ajouterAuGlossaire = (mot: string) => {
+    const mots = r.glossary.split(",").map((m) => m.trim()).filter(Boolean);
+    if (!mots.some((m) => m.toLowerCase() === mot.toLowerCase())) regler("glossary", [...mots, mot].join(", "));
   };
   const ouvrirDossier = () => api("/api/session/open-folder", { method: "POST" }).catch((e) => setErreur(messageErreur(e)));
 
-  // Rien à exporter ni à écouter : fichier illisible, micro en panne dès le départ…
-  const echecSansTexte = !!state && state.finalized && state.status === "ERROR" && state.total === 0;
-  const fichiers = (state?.files ?? {}) as { wav?: boolean; raw_txt?: boolean };
+  const echecSansTexte = !!state && state.finalized && state.status === "ERROR" && state.total === 0 && !state.archived;
+  const fichiers = (state?.files ?? {}) as { wav?: boolean };
   const enRetard = !!state && state.kind === "live" && enCours && (state.queue >= 3 || state.stats.average_realtime_ratio > 1.15);
-  const statut = state && (state.finalized ? (state.status === "ERROR" ? "ERROR" : "STOPPED") : state.status);
+
+  const nomApp = app?.name ?? (r.app_name || "l'application");
+  const resume = ({
+    voix: `Votre voix${micChoisi ? ` · ${micChoisi.name}` : ""}`,
+    app: nomApp,
+    tout: "Tout le son du PC",
+    voix_app: `Votre voix + ${nomApp}`,
+    voix_tout: "Votre voix + le son du PC",
+  } as const)[ecouteDe(r)];
 
   const pourquoiPas = !peutDemarrer && !occupe && !demarrage
     ? (diarisationEnCours ? "Attendez la fin de l'identification des intervenants."
-      : r.engine === "local" && !moteurPret ? "Aucun modèle de transcription : voir « Transcription » dans les réglages."
+      : r.engine === "local" && !moteurPret ? "Aucun modèle de transcription : voir « Modèle de transcription » ci-contre."
       : modeFichier ? (capacites?.files === false ? "La lecture des fichiers n'est pas disponible ici." : "Choisissez d'abord un fichier.")
       : avecMicro && !micChoisi ? "Aucun microphone disponible."
       : avecSysteme && !capacites?.system_audio ? "Le son du PC n'est pas disponible ici."
@@ -378,50 +352,72 @@ export const Transcription: React.FC = () => {
       : "")
     : "";
 
-  const barre = (
-    <div id="commandes" tabIndex={-1} aria-label="Commandes" role="region"
-      className="fixed inset-x-0 bottom-0 z-20 flex flex-col gap-2 outline-none focus-visible:ring-2 focus-visible:ring-focus border-t border-line bg-surface px-4 py-3 shadow-[0_-4px_16px_rgba(0,0,0,0.08)]
-      lg:sticky lg:inset-x-auto lg:bottom-auto lg:top-[76px] lg:rounded-lg lg:border lg:px-4 lg:shadow-sm">
-      <div className="flex flex-wrap items-center gap-2">
-        {(!state || state.finalized) ? (
-          <button type="button" className="nn-btn nn-btn-primary gap-2" onClick={demarrer} disabled={!peutDemarrer}>
-            <IconeLecture />
-            {envoi !== null ? `Envoi… ${Math.round(envoi * 100)} %`
-              : demarrage ? (r.engine === "local" ? "Chargement du modèle…" : "Démarrage…")
-              : modeFichier ? "Transcrire le fichier" : state ? "Nouvel enregistrement" : "Démarrer"}
-          </button>
-        ) : (
-          <>
-            <button type="button" className="nn-btn nn-btn-secondary gap-2" disabled={!enCours} onClick={pauseOuReprise} title="Raccourci : Espace">
-              {state.paused ? <><IconeLecture /> Reprendre</> : <><IconePause /> Pause</>}
-            </button>
-            <button type="button" className="nn-btn nn-btn-primary gap-2" disabled={!enCours} onClick={arreter} title="Raccourci : Échap">
-              <IconeArret /> Arrêter
-            </button>
-          </>
-        )}
-        {envoi !== null && (
-          <button type="button" className="nn-btn nn-btn-secondary" onClick={() => envoiEnCours.current?.abort()}>Annuler l'envoi</button>
-        )}
-        {state && statut && (
-          <span className={`nn-chip ${statut === "ERROR" ? "nn-chip-danger" : statut === "PAUSED" ? "nn-chip-warning" : statut === "STOPPED" ? "nn-chip-success" : ""}`}
-            role="status">{LIBELLES_STATUT[statut] ?? statut}</span>
-        )}
-        {state && state.kind === "live" && <span className="font-mono text-sm tabular-nums text-ink" aria-label="Durée enregistrée">{hms(state.duration)}</span>}
-        {ecoute && niveau.level !== null && <VuMetre niveau={niveau.level} />}
-        {enRetard && <span className="nn-chip nn-chip-warning" title="Le texte arrivera après la fin de l'enregistrement : rien n'est perdu.">La transcription prend du retard</span>}
-      </div>
-      {state && state.kind === "file" && state.file && !state.finalized && <AvancementFichierVue etat={state} avancement={state.file} />}
-      {pourquoiPas && <p className="m-0 text-[13px] text-ink-muted">{pourquoiPas}</p>}
-    </div>
+  const lienCommandes = (
+    <a href="#commandes" onClick={(e) => { e.preventDefault(); document.getElementById("commandes")?.focus(); }}
+      className="sr-only focus:not-sr-only focus:absolute focus:left-6 focus:top-20 focus:z-30 focus:rounded focus:bg-surface focus:px-3 focus:py-2 focus:text-sm focus:text-accent focus:shadow">
+      Aller aux commandes (Démarrer, Pause, Arrêter)
+    </a>
+  );
+  const alertes = (
+    <>
+      {erreur && <Alerte>{erreur}</Alerte>}
+      {state?.error && <Alerte type={state.archived ? "info" : "danger"}>{state.error}</Alerte>}
+      {apercu?.erreur && accueil && <Alerte type="warning">{apercu.erreur}</Alerte>}
+    </>
   );
 
+  // --- Pendant l'enregistrement ou la transcription d'un fichier ---------------------------------------------
+  if (state && !state.finalized) {
+    return (
+      <div className="-mt-8">
+        {lienCommandes}
+        <p className="sr-only" aria-live="polite">{annonce}</p>
+        <EnDirect etat={state} segments={segments} niveau={niveau?.level ?? null}
+          resume={state.kind === "live" ? `${resume} · ${({ fr: "Français", en: "Anglais", auto: "Langue détectée" } as const)[r.language]}` : ""}
+          pauseOuReprise={pauseOuReprise} arreter={arreter} marquer={marquer} enRetard={enRetard} />
+        <div className="mx-auto mt-4 flex max-w-[1180px] flex-col gap-3">
+          {alertes}
+          {ecoute && niveau && niveau.silence >= 10 && (
+            <Alerte type="warning">
+              Aucun son reçu depuis {Math.round(niveau.silence)} s.{" "}
+              {avecApp ? `Vérifiez que ${nomApp} fait bien du son (réunion lancée, son non coupé)${r.source === "mixed" ? " et que le bon microphone est choisi" : ""}.`
+                : `Vérifiez que le bon ${r.source === "system" ? "haut-parleur" : "microphone"} est choisi et qu'il n'est pas coupé.`}
+            </Alerte>
+          )}
+          <Diagnostic etat={state} />
+        </div>
+      </div>
+    );
+  }
+
+  // --- Résultat ------------------------------------------------------------------------------------------------
+  if (state && !echecSansTexte) {
+    return (
+      <div className="flex flex-col gap-5">
+        <p className="sr-only" aria-live="polite">{annonce}</p>
+        {alertes}
+        {!state.archived && state.status !== "ERROR" && (
+          <Alerte type="success">{state.kind === "file" && state.stopping
+            ? "Transcription arrêtée : le texte obtenu jusque-là est enregistré."
+            : "Terminé : le texte est prêt et enregistré dans « Mes transcriptions »."}</Alerte>
+        )}
+        <ResultatPage etat={state} audio={!!fichiers.wav} rafraichir={() => { rafraichir().catch(() => undefined); }}
+          ajouterAuGlossaire={ajouterAuGlossaire} nouvelle={nouvelle}
+          panneauIntervenants={<DiarizationPanel etat={state} cheminPipeline={r.diarization_model_path} locuteurs={r.speaker_hint} disponible={diarisationDispo}
+            relancer={(corps) => action("/api/session/diarization", corps)} />} />
+        <div className="flex flex-wrap items-center gap-3">
+          <button type="button" className="nn-btn nn-btn-secondary" onClick={ouvrirDossier}>Ouvrir le dossier</button>
+          <span className="text-[13px] text-ink-muted">Cette session reste disponible dans <a href="#/historique" className="text-accent underline">Mes transcriptions</a>.</span>
+        </div>
+        {!state.archived && <Diagnostic etat={state} />}
+      </div>
+    );
+  }
+
+  // --- Avant de démarrer -------------------------------------------------------------------------------------
   return (
-    <div className="pb-28 lg:pb-0">
-      <a href="#commandes" onClick={(e) => { e.preventDefault(); document.getElementById("commandes")?.focus(); }}
-        className="sr-only focus:not-sr-only focus:absolute focus:left-6 focus:top-20 focus:z-30 focus:rounded focus:bg-surface focus:px-3 focus:py-2 focus:text-sm focus:text-accent focus:shadow">
-        Aller aux commandes (Démarrer, Pause, Arrêter)
-      </a>
+    <div className="flex flex-col gap-6">
+      {lienCommandes}
       <p className="sr-only" aria-live="polite">{annonce}</p>
       <div className="nn-page-head">
         <div>
@@ -429,81 +425,54 @@ export const Transcription: React.FC = () => {
           <p className="nn-page-subtitle">Tout reste sur cet ordinateur : aucun son ne quitte le poste.</p>
         </div>
       </div>
-      <ChoixMode mode={r.mode} changer={changerMode} bloque={occupe || demarrage} />
+      <ChoixMode mode={r.mode} changer={(m) => { setErreur(""); regler("mode", m); }} bloque={demarrage} />
+      {echecSansTexte && (
+        <div className="flex flex-wrap items-center gap-3">
+          <Alerte>{state!.error || "La transcription s'est arrêtée sur une erreur."}</Alerte>
+          <button type="button" className="nn-btn nn-btn-secondary" onClick={nouvelle}>Fermer</button>
+        </div>
+      )}
 
-      <div className="mt-6 grid items-start gap-6 lg:grid-cols-[360px_minmax(0,1fr)]">
-        <aside aria-label="Réglages" className="order-2 lg:sticky lg:top-[76px] lg:order-none lg:max-h-[calc(100vh-6rem)] lg:overflow-y-auto lg:pr-1"
-          tabIndex={occupe ? 0 : undefined}>
-          <SettingsPanel reglages={r} regler={regler} capacites={capacites} peripheriques={peripheriques} applications={applications} actualiser={actualiser}
-            modele={modele} pipeline={pipeline} cuda={cuda} equipe={equipe} occupe={occupe || demarrage}
-            zoneFichier={<FilePicker choix={choix} choisir={setChoix} extensions={capacites?.file_extensions ?? []}
-              disponible={capacites?.files ?? true} occupe={occupe || demarrage} />} />
-        </aside>
-
-        <div className="order-1 flex min-w-0 flex-col gap-5 lg:order-none">
-          {barre}
-          {erreur && <Alerte>{erreur}</Alerte>}
-          {state?.error && <Alerte>{state.error}</Alerte>}
-          {ecoute && niveau.silence >= 10 && (
-            <Alerte type="warning">
-              Aucun son reçu depuis {Math.round(niveau.silence)} s. {avecApp
-                ? <>Vérifiez que {r.app_name || "l'application"} fait bien du son (réunion lancée, son non coupé)
-                  {r.source === "mixed" ? " et que le bon microphone est choisi" : ""}.</>
-                : <>Vérifiez que le bon {r.source === "system" ? "haut-parleur" : "microphone"} est choisi dans les réglages et qu'il n'est pas coupé.</>}
-            </Alerte>
-          )}
-
-          {!state ? (
-            <p className="m-0 rounded-lg border border-dashed border-line-dashed px-6 py-10 text-center text-sm text-ink-muted">
-              {modeFichier ? "Choisissez un fichier, puis cliquez sur « Transcrire le fichier »." : "Vérifiez la source audio, puis cliquez sur « Démarrer »."}
-            </p>
-          ) : !state.finalized ? (
-            <section aria-labelledby="direct" className="flex flex-col gap-3">
-              <div className="flex items-center justify-between gap-3">
-                <h2 id="direct" className="m-0 text-[19px] font-bold text-ink">{state.kind === "file" ? "Transcription" : "En direct"}</h2>
-                <label className="nn-check text-sm"><input type="checkbox" checked={horodatage} onChange={(e) => setHorodatage(e.target.checked)} /> <span>Horaires</span></label>
+      <section className="nn-card flex flex-wrap overflow-hidden p-0">
+        <div id="commandes" tabIndex={-1} role="region" aria-label="Démarrer"
+          className="relative flex flex-[1_1_340px] flex-col items-center justify-center gap-4 border-line bg-surface-2 px-6 py-10 outline-none max-md:border-b md:border-r">
+          {modeFichier ? (
+            <>
+              <FilePicker choix={choix} choisir={setChoix} extensions={capacites?.file_extensions ?? []} disponible={capacites?.files ?? true} occupe={demarrage} />
+              <div className="flex w-full flex-wrap items-center gap-2">
+                <button type="button" className="nn-btn nn-btn-primary h-12 flex-1 gap-2 text-[16px]" onClick={demarrer} disabled={!peutDemarrer}>
+                  {envoi !== null ? `Envoi… ${Math.round(envoi * 100)} %` : demarrage ? (r.engine === "local" ? "Chargement du modèle…" : "Démarrage…") : "Transcrire le fichier"}
+                </button>
+                {envoi !== null && <button type="button" className="nn-btn nn-btn-secondary h-12" onClick={() => envoiEnCours.current?.abort()}>Annuler l'envoi</button>}
               </div>
-              {state.paused && <Alerte type="info">{state.kind === "file"
-                ? "En pause : « Reprendre » continue la transcription là où elle s'est arrêtée."
-                : "En pause : rien n'est enregistré. « Reprendre » continue le même enregistrement."}</Alerte>}
-              {state.stopping && <Alerte type="info">{state.kind === "file"
-                ? "Arrêt demandé : le texte déjà transcrit est conservé."
-                : "Enregistrement arrêté. Transcription des dernières secondes…"}</Alerte>}
-              <Direct segments={segments} horodatage={horodatage} />
-            </section>
-          ) : echecSansTexte ? (
-            <div className="flex flex-wrap items-center gap-3">
-              <button type="button" className="nn-btn nn-btn-secondary" onClick={nouvelle}>Nouvelle session</button>
-            </div>
+            </>
           ) : (
             <>
-              <Section titre={state.archived ? `Session du ${state.id.slice(8, 10)}/${state.id.slice(5, 7)}/${state.id.slice(0, 4)} à ${state.id.slice(11, 16).replace("-", ":")}` : "Résultat"}>
-                {!state.archived && state.status !== "ERROR" && (
-                  <Alerte type="success">{state.kind === "file" && state.stopping
-                    ? "Transcription arrêtée : le texte obtenu jusque-là est enregistré."
-                    : "Terminé : le texte est prêt et enregistré, sans attendre l'identification des intervenants."}</Alerte>
-                )}
-                <Resultat key={state.id} sessionId={state.id} avecIntervenants={state.diarization.status === "DONE"} intervenants={state.speakers}
-                  audio={!!fichiers.wav} apresNoms={() => { rafraichir().catch(() => undefined); }} />
-              </Section>
-
-              <Section titre="Intervenants">
-                <DiarizationPanel etat={state} cheminPipeline={r.diarization_model_path} locuteurs={r.speaker_hint} disponible={diarisationDispo}
-                  relancer={(corps) => action("/api/session/diarization", corps)} />
-              </Section>
-
-              <div className="flex flex-wrap items-center gap-3">
-                <button type="button" className="nn-btn nn-btn-secondary" onClick={nouvelle} disabled={diarisationEnCours}>Nouvelle session</button>
-                <button type="button" className="nn-btn nn-btn-secondary" onClick={ouvrirDossier}>Ouvrir le dossier</button>
-                {fichiers.wav && state.kind !== "file" && <a className="nn-btn nn-btn-secondary" href="/api/session/file/wav?download=true" download>Audio (.wav)</a>}
-                <span className="text-[13px] text-ink-muted">Cette session reste disponible dans <a href="#/historique" className="text-accent underline">Mes transcriptions</a>.</span>
+              <button type="button" onClick={demarrer} disabled={!peutDemarrer} aria-describedby="demarrer-detail"
+                className="flex h-28 w-28 items-center justify-center rounded-full border-0 bg-primary text-primary-on shadow-[0_0_0_10px_var(--nn-accent-soft)] transition-transform
+                  hover:bg-primary-hover focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[14px] focus-visible:outline-focus enabled:hover:scale-[1.03]
+                  disabled:cursor-not-allowed disabled:bg-primary-disabled disabled:text-primary-on-disabled">
+                <IconeMicro taille={44} />
+                <span className="sr-only">Démarrer l'enregistrement</span>
+              </button>
+              <div id="demarrer-detail" className="text-center">
+                <div className="text-[19px] font-bold text-ink" aria-hidden="true">{demarrage ? (r.engine === "local" ? "Chargement du modèle…" : "Démarrage…") : "Démarrer l'enregistrement"}</div>
+                <div className="mt-1 text-sm text-ink-muted">{resume}</div>
+                <div className="mt-0.5 text-[13px] text-ink-subtle">Espace : pause · Échap : arrêter · M : marquer un moment</div>
               </div>
             </>
           )}
-
-          {state && !state.archived && <Diagnostic etat={state} />}
+          {pourquoiPas && <p className="m-0 max-w-[320px] text-center text-[13px] text-warning-text">{pourquoiPas}</p>}
         </div>
-      </div>
+
+        <div className="flex flex-[2_1_520px] flex-col gap-1 px-7 pb-6 pt-7">
+          <h2 className="m-0 mb-1 text-[19px] font-bold text-ink">Prêt ?</h2>
+          <Pret reglages={r} regler={regler} capacites={capacites} peripheriques={peripheriques} applications={applications} apercu={apercu}
+            actualiser={actualiser} pipeline={pipeline} modeleOk={modeleOk} blocModele={blocModele} occupe={demarrage} />
+          <ReglagesAvances reglages={r} regler={regler} capacites={capacites} cuda={cuda} modeleOk={modeleOk} blocModele={blocModele} pipeline={pipeline} occupe={demarrage} />
+        </div>
+      </section>
+      {alertes}
     </div>
   );
 };

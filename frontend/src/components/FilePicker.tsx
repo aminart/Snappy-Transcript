@@ -1,6 +1,5 @@
 import React from "react";
 import { taille } from "../format";
-import { Section } from "./ui";
 
 export type ChoixFichier = { type: "envoi"; fichier: File } | { type: "chemin"; chemin: string } | null;
 
@@ -29,7 +28,8 @@ export const FilePicker: React.FC<Props> = ({ choix, choisir, extensions, dispon
   };
 
   return (
-    <Section titre="Fichier">
+    <div className="flex w-full flex-col gap-4">
+      <h2 className="m-0 text-[17px] font-bold text-ink">Fichier à transcrire</h2>
       {!disponible && (
         <p role="alert" className="m-0 text-[13px] text-warning-text">La lecture des fichiers (PyAV) n'est pas incluse dans cette installation.</p>
       )}
@@ -68,6 +68,6 @@ export const FilePicker: React.FC<Props> = ({ choix, choisir, extensions, dispon
           onChange={(e) => choisir(e.target.value.trim() ? { type: "chemin", chemin: e.target.value } : null)} />
         <span id="chemin-fichier-aide" className="text-[13px] leading-snug text-ink-muted">Pratique pour les très gros fichiers : ils sont lus sur place, sans copie.</span>
       </div>
-    </Section>
+    </div>
   );
 };

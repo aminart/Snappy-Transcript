@@ -48,7 +48,7 @@ export const DiarizationPanel: React.FC<Props> = ({ etat, cheminPipeline, locute
       {d.status === "DONE" && (
         <>
           <p className="m-0 text-sm text-ink-body">
-            ✓ Intervenants identifiés : choisissez « Avec intervenants » au-dessus du texte, puis donnez-leur un nom.
+            ✓ Identification terminée.
           </p>
           {!impossible && bouton("Recommencer l'identification")}
         </>

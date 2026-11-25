@@ -2,6 +2,17 @@
 
 ## [Non publié]
 
+- Nouvel écran « Transcrire » : grand bouton d'enregistrement et liste « Prêt ? » (source, application, micro,
+  langue, mots à bien reconnaître, intervenants) modifiable sur place ; la source est testée avant de démarrer
+  (« On vous entend », « Teams est bien capté »). Les réglages techniques sont repliés dans « Réglages avancés ».
+- Pendant l'enregistrement, mode concentration : chrono, niveau, « Marquer ce moment » (touche M), Pause, Arrêter ;
+  le texte en colonne de lecture, « Revenir au direct » quand on remonte lire.
+- Résultat : titre modifiable, phrases corrigées d'un clic, intervenants renommés en cliquant sur leur nom, lecteur
+  avec forme d'onde colorée par intervenant et temps de parole, moments marqués (renommer, supprimer, réécouter),
+  « Rechercher et remplacer » (Ctrl+F / Ctrl+H, tout remplacer annulable, ajout aux mots à bien reconnaître),
+  menu « Exporter » avec le format Word.
+- Mes transcriptions : titres modifiables, recherche dans le texte de toutes les sessions (accents ignorés) avec
+  l'extrait trouvé, filtres, intervenants nommés, et « Récupérer le texte » d'une session interrompue.
 - Menu simplifié : « Transcrire » et « Mes transcriptions » (ex-« Historique »). L'onglet « À propos » est retiré :
   la version s'affiche en pied de page.
 - « Qu'est-ce qu'on écoute ? » : ma voix, une application, tout le son de l'ordinateur, ou ma voix + une application.
