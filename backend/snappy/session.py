@@ -1,6 +1,8 @@
 from __future__ import annotations
 import logging, queue, threading, time, wave
 from dataclasses import dataclass
+
+import numpy as np
 from pathlib import Path
 from .audio.base import AudioSource
 from .models import TranscriptSegment
@@ -9,6 +11,9 @@ from .cache import TranscriptCache
 from .paths import app_data_dir
 
 log = logging.getLogger(__name__)
+
+# En dessous : silence. Un micro coupé ou débranché est vers -90 dBFS ; le souffle d'un vrai micro, vers -60/-50.
+SILENCE_DB = -55
 
 @dataclass
 class SessionStats:
@@ -31,6 +36,8 @@ class LiveSession:
         root=app_data_dir()/'sessions'/session_id
         root.mkdir(parents=True,exist_ok=True); self.session_dir=root; self.wav_path=root/f'recording_{session_id}.wav'
         self._wav=None
+        # Vu-mètre : niveau du dernier bloc (0 à 1) et dernier instant où un son a été entendu
+        self.level=0.0; self._last_sound=time.monotonic()
 
     @property
     def status(self):
@@ -73,6 +80,7 @@ class LiveSession:
             while not self._stop.is_set():
                 block=self.source.read_chunk(timeout=.1)
                 if not block:continue
+                self._measure(block)
                 if self._pause.is_set():
                     continue
                 self._store(block); self._emit_full_windows()
@@ -100,6 +108,19 @@ class LiveSession:
                 except Exception as exc:log.warning('WAV close failed: %s',exc)
             finally:
                 self._capture_done.set(); self._tasks.put(None)
+    def _measure(self,block):
+        """Niveau du bloc pour le vu-mètre : efficace en dBFS ramené de [-60 ; 0] à [0 ; 1]."""
+        samples=np.frombuffer(block,dtype=np.int16)
+        if not samples.size:return
+        rms=float(np.sqrt(np.mean(np.square(samples.astype(np.float32)))))/32768.0
+        db=20*np.log10(max(rms,1e-6))
+        self.level=float(min(1.0,max(0.0,(db+60)/60)))
+        if db>SILENCE_DB:self._last_sound=time.monotonic()
+    @property
+    def silence_seconds(self):
+        """Durée sans aucun son au-dessus du seuil (micro coupé, mauvaise entrée…) ; 0 en pause ou après l'arrêt."""
+        if self._pause.is_set() or self._stop.is_set():return 0.0
+        return time.monotonic()-self._last_sound
     @staticmethod
     def _word_overlap(previous,current,max_words=12):
         a=previous.strip().split(); b=current.strip().split(); limit=min(max_words,len(a),len(b))
@@ -153,7 +174,7 @@ class LiveSession:
         self._pause.set(); self._set_status('PAUSED')
     def resume(self):
         if self._stop.is_set(): return
-        self._pause.clear(); self._set_status('LISTENING')
+        self._pause.clear(); self._last_sound=time.monotonic(); self._set_status('LISTENING')
     def stop(self):
         self._stopped_while_paused=self._pause.is_set()
         self._pause.clear(); self._stop.set()

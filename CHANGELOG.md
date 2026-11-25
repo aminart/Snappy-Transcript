@@ -2,6 +2,18 @@
 
 ## [Non publié]
 
+- Vu-mètre pendant l'enregistrement, et alerte quand aucun son n'arrive depuis 10 secondes (micro coupé, mauvaise entrée).
+- Barre d'actions toujours visible (Démarrer, Pause, Arrêter, durée, niveau), en bas de l'écran sur téléphone ;
+  raccourcis Espace (pause / reprise) et Échap (arrêter) ; « La transcription prend du retard » quand c'est le cas.
+- Réglages simplifiés : source, langue, mots à bien reconnaître et intervenants restent visibles ; le moteur, le modèle,
+  le calcul, les blocs et le VAD sont dans « Réglages avancés ». Vocabulaire simplifié (texte seul, avec intervenants…).
+- Résultat exploitable : « Copier le texte » (une réplique par intervenant), correction phrase par phrase, noms des
+  intervenants (« SPEAKER_00 » → « Marie »), repris dans les fichiers téléchargés.
+- Historique : chaque session est enregistrée avec son texte ; on peut la rouvrir (réécouter, corriger, nommer les
+  intervenants), ouvrir son dossier ou la supprimer. Les sessions interrompues y apparaissent aussi.
+- Petites améliorations : annulation de l'envoi d'un fichier, « Ouvrir le dossier », noms des micros sans numéro,
+  option des intervenants décochée et expliquée quand elle n'est pas installée, texte en direct en police courante.
+
 - Le modèle de transcription est fourni par Studio Dock (modèle de l'équipe) : plus aucun chemin à saisir au premier
   lancement. Un autre modèle reste possible sur le poste (« Utiliser un autre modèle »).
 - Correction : sur un PC sans carte NVIDIA, la détection du GPU plantait (erreur Python affichée sous « Calcul ») et

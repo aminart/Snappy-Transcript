@@ -24,6 +24,10 @@ Elle remplace l'ancienne interface Streamlit (Audio Transcriber 1.5.7), dont ell
   exports « avec locuteurs » séparés.
 - **Lecteur synchronisé** : clic sur une phrase pour y aller, phrase et mot lu surlignés ; bascule brute / avec locuteurs.
 - **Reprise après coup** : locuteurs d'une réunion déjà enregistrée à partir d'un WAV et d'un SRT (chemins locaux).
+- **Résultat exploitable** : copier le texte en un clic, corriger une phrase, nommer les intervenants ; les fichiers
+  téléchargés reprennent les corrections et les noms.
+- **Historique** : chaque session est enregistrée (texte, audio, intervenants) et peut être rouverte plus tard.
+- **Vu-mètre** pendant l'enregistrement et alerte si aucun son n'arrive.
 - **Copie de récupération** du texte après chaque bloc, en cas de plantage.
 
 ## Où sont les données
@@ -34,7 +38,7 @@ variable `SNAPPY_DATA` pour le déplacer.
 | Chemin | Contenu |
 |---|---|
 | `settings.json` | Réglages mémorisés (modèle, GPU, glossaire…) |
-| `sessions/<date>/` | `recording_….wav`, `transcript_…_raw.txt/.srt`, `transcript_…_diarized.txt/.srt` |
+| `sessions/<date>/` | `recording_….wav`, exports `transcript_…_raw.txt/.srt` et `…_diarized.txt/.srt`, texte de travail `transcript_raw.json` / `transcript_diarized.json` (avec les horaires des mots), fiche `session.json` (historique, noms des intervenants) |
 | `cache/transcript_<date>.txt` | Copie de récupération du texte, réécrite de façon atomique après chaque bloc |
 | `uploads/` | Fichiers glissés dans la page, le temps de leur lecture (supprimés ensuite, et au bout d'un jour au plus tard) |
 

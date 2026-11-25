@@ -54,5 +54,5 @@ export function useSession() {
     appliquer({ active: false } as SessionState);
   }, [appliquer]);
 
-  return { state, segments, action, oublier };
+  return { state, segments, action, oublier, rafraichir };
 }

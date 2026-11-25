@@ -2,7 +2,7 @@
 import time
 
 import pytest
-from fakes import SourceFactice
+from fakes import SourceContinue, SourceFactice
 from fastapi.testclient import TestClient
 
 from main import app
@@ -12,7 +12,7 @@ from snappy.service import manager
 
 @pytest.fixture
 def client(monkeypatch):
-    monkeypatch.setattr(manager, "_source", lambda p: SourceFactice(blocs=150))
+    monkeypatch.setattr(manager, "_source", lambda p: SourceContinue())
     with TestClient(app) as c:
         yield c
 
