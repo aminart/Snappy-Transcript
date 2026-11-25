@@ -1,42 +1,12 @@
-import queue
 import time
 import wave
 
-from audio.base import AudioSource
-from models.transcript import TranscriptSegment, TranscriptWord
-from services.live_session import LiveSession
-from transcription.base import TranscriptionProvider
-from transcription.mock import MockProvider
+from snappy.models import TranscriptSegment, TranscriptWord
+from snappy.session import LiveSession
+from snappy.transcription.base import TranscriptionProvider
+from snappy.transcription.mock import MockProvider
 
-RATE = 16000
-BLOC = b"\x00\x00" * (RATE // 10)  # 100 ms de silence PCM16
-
-
-class SourceFactice(AudioSource):
-    sample_rate = RATE
-
-    def __init__(self, blocs=0, echec_apres_arret=False, echec_au_demarrage=False):
-        self.q: queue.Queue = queue.Queue()
-        for _ in range(blocs):
-            self.q.put(BLOC)
-        self.arretee = False
-        self.echec_apres_arret = echec_apres_arret
-        self.echec_au_demarrage = echec_au_demarrage
-
-    def start(self):
-        if self.echec_au_demarrage:
-            raise OSError("périphérique occupé")
-
-    def stop(self):
-        self.arretee = True
-
-    def read_chunk(self, timeout=0.2):
-        if self.arretee and self.echec_apres_arret:
-            raise RuntimeError("boucle système perdue")
-        try:
-            return self.q.get(timeout=timeout)
-        except queue.Empty:
-            return None
+from fakes import BLOC, RATE, SourceFactice
 
 
 class Lent(TranscriptionProvider):

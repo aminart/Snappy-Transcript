@@ -1,15 +1,13 @@
-.venv/
 __pycache__/
-*.pyc
-.env
-output/*
-!output/.gitkeep
-models_local/
+.venv/
+build/
+dist/
+frontend/node_modules/
+frontend/dist/
+*.spec.bak
+.pytest_cache/
+*.tsbuildinfo
 
 # Jetons et secrets : ne jamais les versionner
 tokenpyannoteaudio.txt
 *token*.txt
-
-# Générés
-*.sav
-settings/
