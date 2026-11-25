@@ -39,7 +39,13 @@ if errorlevel 1 goto :erreur
 echo [3/3] Interface...
 pushd frontend
 call npm ci
-if errorlevel 1 ( popd & goto :erreur )
+if errorlevel 1 (
+    popd
+    echo.
+    echo Si npm parle de EPERM : fermez les fenetres start.bat / start_dev.bat et VS Code, puis relancez.
+    echo Si npm parle de ENOTFOUND ou de proxy : le registre npm n'est pas joignable depuis ce poste.
+    goto :erreur
+)
 call npm run build
 if errorlevel 1 ( popd & goto :erreur )
 popd
