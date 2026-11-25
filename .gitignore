@@ -11,3 +11,10 @@ frontend/dist/
 # Jetons et secrets : ne jamais les versionner
 tokenpyannoteaudio.txt
 *token*.txt
+
+# Modèles de transcription et d'identification des intervenants (centaines de Mo) : jamais sur GitHub
+models/
+models_local/
+modeles/
+*.bin
+*.safetensors
