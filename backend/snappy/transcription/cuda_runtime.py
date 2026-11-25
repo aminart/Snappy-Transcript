@@ -6,6 +6,8 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
+CPU_SEUL = "Pas de carte graphique NVIDIA utilisable : le calcul se fera sur le processeur, ce qui fonctionne très bien."
+
 _DLL_HANDLES: dict[str, object] = {}  # un seul add_dll_directory par dossier, même si on est appelé à chaque requête
 
 
@@ -15,7 +17,8 @@ class CudaRuntimeStatus:
     cublas_dir: Path | None
     cudnn_dir: Path | None
     ready: bool
-    detail: str
+    detail: str   # technique : pour le diagnostic
+    message: str = ""  # pour l'utilisateur
 
 
 def _racines() -> list[Path]:
@@ -26,9 +29,10 @@ def _racines() -> list[Path]:
     racines.append(Path(sys.prefix) / "Lib" / "site-packages")
     try:
         spec = importlib.util.find_spec("nvidia")  # espace de noms : plusieurs emplacements possibles
-        racines.extend(Path(p).parent for p in (spec.submodule_search_locations or []) if spec)
     except (ImportError, ValueError):
-        pass
+        spec = None
+    if spec is not None:  # None : paquets NVIDIA absents, cas le plus courant (PC sans GPU)
+        racines.extend(Path(p).parent for p in (spec.submodule_search_locations or []))
     return racines
 
 
@@ -56,7 +60,8 @@ def prepare_cuda_runtime() -> CudaRuntimeStatus:
         import ctranslate2
         gpu_count = int(ctranslate2.get_cuda_device_count())
     except Exception as exc:
-        return CudaRuntimeStatus(0, cublas, cudnn, False, f"CTranslate2/CUDA indisponible : {type(exc).__name__}: {exc}")
+        return CudaRuntimeStatus(0, cublas, cudnn, False, f"CTranslate2/CUDA indisponible : {type(exc).__name__}: {exc}",
+                                 CPU_SEUL)
 
     has_cublas = bool(cublas and (cublas / "cublas64_12.dll").is_file())
     has_cudnn = bool(cudnn and (cudnn / "cudnn64_9.dll").is_file()) or any(
@@ -70,4 +75,11 @@ def prepare_cuda_runtime() -> CudaRuntimeStatus:
     if not has_cudnn:
         missing.append("cudnn64_9.dll")
     detail = "CUDA prêt (GPU + cuBLAS 12 + cuDNN 9)." if ready else "Manquant : " + ", ".join(missing)
-    return CudaRuntimeStatus(gpu_count, cublas, cudnn, ready, detail)
+    if ready:
+        message = f"Carte graphique NVIDIA prête ({gpu_count} GPU) : la transcription sera plus rapide."
+    elif gpu_count > 0:
+        message = ("Carte NVIDIA détectée, mais les composants GPU de cette installation sont incomplets : "
+                   "le calcul se fera sur le processeur.")
+    else:
+        message = CPU_SEUL
+    return CudaRuntimeStatus(gpu_count, cublas, cudnn, ready, detail, message)

@@ -11,6 +11,7 @@ export interface Settings {
   input_device: string;
   output_device: string;
   model_path: string;
+  use_own_model: boolean;
   acceleration: Acceleration;
   language: Language;
   glossary: string;
@@ -37,7 +38,9 @@ export interface OutputDevice { name: string; id: string }
 export interface Devices { inputs: InputDevice[]; input_error: string; outputs: OutputDevice[] }
 
 export interface Verification { valid: boolean; message: string; name?: string; missing?: string[] }
-export interface Cuda { ready: boolean; gpu_count: number; detail: string }
+export interface ModeleEquipe { name: string; version: string | null; path: string }
+
+export interface Cuda { ready: boolean; gpu_count: number; detail: string; message: string }
 
 /** [début, fin, texte] en secondes */
 export type Mot = [number, number, string];

@@ -55,9 +55,13 @@ L'interface est sur http://localhost:5173 (l'API sur le port 8110). Tests : `pyt
 
 ### Modèle faster-whisper
 
-Un dossier de modèle déjà converti (CTranslate2), avec `config.json`, `model.bin` et `tokenizer.json`, par exemple
-`faster-whisper-small`. L'app ne télécharge jamais rien : renseignez le dossier dans **Transcription › Dossier du modèle**.
-Sans modèle, le moteur « Simulation » permet de tout essayer.
+**Dans l'équipe, rien à régler** : le modèle est fourni par Studio Dock. L'administratrice le déclare une fois dans
+Préparer pour l'équipe et dépose son .zip dans le dossier partagé ; Studio Dock l'installe chez chacun, et Snappy le lit
+avec `studiodock_ia.transcription()` (voir le README de Studio Dock, « Modèle de transcription de l'équipe »).
+
+Sans Studio Dock, ou pour essayer un autre modèle : **Transcription › Utiliser un autre modèle sur ce poste**, puis le
+dossier d'un modèle déjà converti (CTranslate2 : `config.json`, `model.bin`, `tokenizer.json`), par exemple
+`faster-whisper-small`. L'app ne télécharge jamais rien. Sans modèle, le moteur « Simulation » permet de tout essayer.
 
 ### GPU NVIDIA (Windows, optionnel)
 

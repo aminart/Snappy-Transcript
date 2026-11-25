@@ -55,13 +55,22 @@ def cuda() -> dict[str, Any]:
     try:
         from .transcription.cuda_runtime import prepare_cuda_runtime
         st = prepare_cuda_runtime()
-        return {"ready": st.ready, "gpu_count": st.gpu_count, "detail": st.detail}
-    except Exception as exc:
-        return {"ready": False, "gpu_count": 0, "detail": f"Détection CUDA : {type(exc).__name__}: {exc}"}
+        return {"ready": st.ready, "gpu_count": st.gpu_count, "detail": st.detail, "message": st.message}
+    except Exception as exc:  # jamais d'erreur brute à l'écran : le processeur reste toujours possible
+        from .transcription.cuda_runtime import CPU_SEUL
+        return {"ready": False, "gpu_count": 0, "detail": f"Détection CUDA : {type(exc).__name__}: {exc}", "message": CPU_SEUL}
 
 
 class CheminModele(BaseModel):
     path: str = ""
+
+
+@router.get("/model")
+def model() -> dict[str, Any]:
+    """Modèle de l'équipe fourni par Studio Dock (null s'il n'y en a pas sur ce poste)."""
+    from .service import team_model
+    equipe = team_model()
+    return {"team": None if equipe is None else {"name": equipe.name, "version": equipe.version, "path": equipe.path}}
 
 
 @router.post("/model/check")

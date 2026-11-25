@@ -6,7 +6,7 @@ import { SettingsPanel } from "./components/SettingsPanel";
 import { SyncPlayer } from "./components/SyncPlayer";
 import { Alerte, Chiffre, Progression, Section } from "./components/ui";
 import { LIBELLES_STATUT, duree, hms } from "./format";
-import type { AvancementFichier, Capabilities, Cuda, Devices, Mode, Segment, Settings, SessionState, Verification } from "./types";
+import type { AvancementFichier, Capabilities, Cuda, Devices, Mode, ModeleEquipe, Segment, Settings, SessionState, Verification } from "./types";
 import { useSession } from "./useSession";
 
 const LIGNES_AFFICHEES = 400;
@@ -130,6 +130,7 @@ export const Transcription: React.FC = () => {
   const [capacites, setCapacites] = React.useState<Capabilities | null>(null);
   const [peripheriques, setPeripheriques] = React.useState<Devices | null>(null);
   const [cuda, setCuda] = React.useState<Cuda | null>(null);
+  const [equipe, setEquipe] = React.useState<ModeleEquipe | null | undefined>(undefined);
   const [erreur, setErreur] = React.useState("");
   const [demarrage, setDemarrage] = React.useState(false);
   const [horodatage, setHorodatage] = React.useState(true);
@@ -140,6 +141,7 @@ export const Transcription: React.FC = () => {
   React.useEffect(() => {
     api<Capabilities>("/api/capabilities").then(setCapacites).catch(() => undefined);
     api<Cuda>("/api/cuda").then(setCuda).catch(() => undefined);
+    api<{ team: ModeleEquipe | null }>("/api/model").then((m) => setEquipe(m.team)).catch(() => setEquipe(null));
     actualiser();
   }, [actualiser]);
 
@@ -160,7 +162,8 @@ export const Transcription: React.FC = () => {
   const diarisationDispo = capacites?.diarization ?? false;
 
   const modeFichier = r.mode === "file";
-  const moteurPret = r.engine === "mock" || (modele?.valid === true && capacites?.stt !== false);
+  const modeleEquipe = !!equipe && !r.use_own_model;
+  const moteurPret = r.engine === "mock" || ((modeleEquipe || modele?.valid === true) && capacites?.stt !== false);
   const sourcePrete = modeFichier
     ? !!choix && (capacites?.files ?? false)
     : (!avecMicro || !!micChoisi) && (!avecSysteme || !!capacites?.system_audio);
@@ -169,7 +172,7 @@ export const Transcription: React.FC = () => {
   const changerMode = (m: Mode) => { setErreur(""); regler("mode", m); };
 
   const options = () => ({
-    engine: r.engine, model_path: r.model_path, acceleration: r.acceleration, language: r.language, glossary: r.glossary,
+    engine: r.engine, model_path: modeleEquipe ? "" : r.model_path, acceleration: r.acceleration, language: r.language, glossary: r.glossary,
     vad_filter: r.vad_filter, save_audio: r.save_audio, diarization: r.diarization && diarisationDispo,
     diarization_model_path: r.diarization_model_path, speaker_hint: r.speaker_hint,
   });
@@ -191,7 +194,7 @@ export const Transcription: React.FC = () => {
       if (modeFichier) { await transcrireFichier(); return; }
       await action("/api/session/start", {
         source: r.source, engine: r.engine, input_device: avecMicro ? micChoisi?.index ?? null : null,
-        output_device: r.output_device || sorties[0]?.name || "", model_path: r.model_path, acceleration: r.acceleration,
+        output_device: r.output_device || sorties[0]?.name || "", model_path: modeleEquipe ? "" : r.model_path, acceleration: r.acceleration,
         language: r.language, glossary: r.glossary, chunk_seconds: r.chunk_seconds,
         overlap_seconds: Math.min(r.overlap_seconds, r.chunk_seconds - 0.5), vad_filter: r.vad_filter, save_audio: r.save_audio,
         diarization: r.diarization && diarisationDispo, diarization_model_path: r.diarization_model_path, speaker_hint: r.speaker_hint,
@@ -230,7 +233,7 @@ export const Transcription: React.FC = () => {
       <div className="grid items-start gap-6 lg:grid-cols-[360px_minmax(0,1fr)]">
         <aside aria-label="Réglages" className="lg:sticky lg:top-20 lg:max-h-[calc(100vh-6rem)] lg:overflow-y-auto lg:pr-1">
           <SettingsPanel reglages={r} regler={regler} capacites={capacites} peripheriques={peripheriques} actualiser={actualiser}
-            modele={modele} pipeline={pipeline} cuda={cuda} occupe={occupe || demarrage}
+            modele={modele} pipeline={pipeline} cuda={cuda} equipe={equipe} occupe={occupe || demarrage}
             zoneFichier={<FilePicker choix={choix} choisir={setChoix} extensions={capacites?.file_extensions ?? []}
               disponible={capacites?.files ?? true} occupe={occupe || demarrage} />} />
         </aside>
@@ -256,7 +259,9 @@ export const Transcription: React.FC = () => {
           {!peutDemarrer && !occupe && !demarrage && (
             <p className="m-0 text-[13px] text-ink-muted">
               {diarisationEnCours ? "Une diarisation est encore en cours : attendez sa fin pour démarrer une nouvelle session."
-                : r.engine === "local" && modele?.valid !== true ? "Renseignez un modèle faster-whisper valide, ou choisissez la simulation."
+                : r.engine === "local" && !moteurPret ? (equipe === null && !r.model_path.trim()
+                  ? "Aucun modèle de transcription sur ce poste : voir le cadre « Transcription » à gauche."
+                  : "Le dossier de modèle indiqué n'est pas valide.")
                 : modeFichier ? (capacites?.files === false ? "La lecture des fichiers n'est pas disponible ici." : "Choisissez un fichier audio ou vidéo.")
                 : avecMicro && !micChoisi ? "Aucun microphone disponible."
                 : avecSysteme && !capacites?.system_audio ? "La capture du son du PC n'est pas disponible ici." : ""}
