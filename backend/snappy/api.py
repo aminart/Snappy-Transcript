@@ -65,6 +65,14 @@ class CheminModele(BaseModel):
     path: str = ""
 
 
+@router.get("/model")
+def model() -> dict[str, Any]:
+    """Modèle de l'équipe fourni par Studio Dock (null s'il n'y en a pas sur ce poste)."""
+    from .service import team_model
+    equipe = team_model()
+    return {"team": None if equipe is None else {"name": equipe.name, "version": equipe.version, "path": equipe.path}}
+
+
 @router.post("/model/check")
 def check_model(body: CheminModele) -> dict[str, Any]:
     from .transcription.whisper import validate_ctranslate2_model

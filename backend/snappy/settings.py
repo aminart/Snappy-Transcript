@@ -16,7 +16,8 @@ DEFAULTS: dict[str, Any] = {
     "engine": "local",               # local | mock
     "input_device": "",              # nom du micro ; vide : le premier détecté
     "output_device": "",             # nom de la sortie Windows à capturer ; vide : la sortie par défaut
-    "model_path": "",
+    "model_path": "",                # modèle choisi sur ce poste (seulement si use_own_model)
+    "use_own_model": False,          # False : modèle de l'équipe, fourni par Studio Dock
     "acceleration": "auto",          # auto | gpu | cpu
     "language": "fr",                # fr | en | auto
     "glossary": "",

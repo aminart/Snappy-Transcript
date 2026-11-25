@@ -338,6 +338,12 @@ class Manager:
             return MockProvider()
         from .transcription.whisper import LocalWhisperProvider, validate_ctranslate2_model
 
+        if not p.model_path.strip():  # pas de dossier choisi sur ce poste : le modèle de l'équipe
+            equipe = team_model()
+            if equipe is None:
+                raise ServiceError("Aucun modèle de transcription : Studio Dock n'en a pas installé sur ce poste "
+                                   "(Réglages › Modèles d'IA), et aucun dossier n'est indiqué ici.", 422)
+            p.model_path = equipe.path
         check = validate_ctranslate2_model(p.model_path)
         if not check.valid:
             detail = f" Manquants : {', '.join(check.missing)}." if check.missing else ""
@@ -507,6 +513,15 @@ class Manager:
         except Exception as exc:
             log.exception("Diarisation après coup")
             job.status, job.error = "ERROR", f"{type(exc).__name__}: {exc}"
+
+
+def team_model():
+    """Modèle de transcription installé par Studio Dock pour l'équipe (studiodock_ia.transcription()), ou None."""
+    try:
+        import studiodock_ia
+        return studiodock_ia.transcription()
+    except Exception:  # contrat absent ou fichier illisible : comme s'il n'y en avait pas
+        return None
 
 
 manager = Manager()

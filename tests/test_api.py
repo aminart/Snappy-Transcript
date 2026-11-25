@@ -154,3 +154,28 @@ def test_capacites_et_peripheriques(client):
     assert set(client.get("/api/capabilities").json()) == {"platform", "stt", "diarization", "system_audio", "files", "file_extensions"}
     d = client.get("/api/devices").json()
     assert isinstance(d["inputs"], list) and isinstance(d["outputs"], list)
+
+
+def test_modele_de_l_equipe_fourni_par_studio_dock(client, tmp_path, monkeypatch):
+    monkeypatch.setenv("STUDIODOCK_IA", str(tmp_path / "ia"))
+    assert client.get("/api/model").json() == {"team": None}
+    # sans modèle de l'équipe ni dossier : message qui explique où le régler
+    r = client.post("/api/session/start", json={**DEMARRAGE, "engine": "local", "model_path": ""})
+    assert r.status_code == 422 and "Studio Dock" in r.json()["detail"]
+
+    modele = tmp_path / "modeles" / "transcription" / "faster-whisper-small"
+    modele.mkdir(parents=True)
+    for nom in ("config.json", "model.bin", "tokenizer.json"):
+        (modele / nom).write_text("{}")
+    (tmp_path / "ia").mkdir()
+    (tmp_path / "ia" / "transcription.json").write_text(
+        f'{{"format": 1, "name": "Whisper small", "version": "1.0.0", "path": {str(modele)!r}}}'.replace("'", '"'))
+    assert client.get("/api/model").json()["team"] == {"name": "Whisper small", "version": "1.0.0", "path": str(modele)}
+
+    choisi = {}
+    class Faux:
+        def __init__(self, chemin, **_):
+            choisi["chemin"] = chemin
+    monkeypatch.setattr("snappy.transcription.whisper.LocalWhisperProvider", Faux)
+    r = client.post("/api/session/start", json={**DEMARRAGE, "engine": "local", "model_path": ""})
+    assert r.status_code == 200 and choisi["chemin"] == str(modele)

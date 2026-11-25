@@ -2,6 +2,11 @@
 
 ## [Non publié]
 
+- Le modèle de transcription est fourni par Studio Dock (modèle de l'équipe) : plus aucun chemin à saisir au premier
+  lancement. Un autre modèle reste possible sur le poste (« Utiliser un autre modèle »).
+- Correction : sur un PC sans carte NVIDIA, la détection du GPU plantait (erreur Python affichée sous « Calcul ») et
+  le moteur réel ne démarrait pas en mode « Automatique ». Le message dit maintenant que le calcul se fera sur le processeur.
+
 - Transcription d'un fichier audio ou vidéo, dans son format d'origine (MP3, M4A, WAV, FLAC, OGG, Opus, WMA, AIFF… ;
   MP4, MOV, MKV, AVI, WMV, WebM, MPEG…) : glisser-déposer ou chemin sur le PC, progression et temps restant, pause, arrêt
   en gardant le texte obtenu ; ensuite exports, lecteur synchronisé et locuteurs comme pour une session en direct.

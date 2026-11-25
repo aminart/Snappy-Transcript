@@ -1,6 +1,6 @@
 import React from "react";
 import { Champ, Section, Verifie } from "./ui";
-import type { Acceleration, Capabilities, Cuda, Devices, Settings, Source, Verification } from "../types";
+import type { Acceleration, Capabilities, Cuda, Devices, ModeleEquipe, Settings, Source, Verification } from "../types";
 
 interface Props {
   reglages: Settings;
@@ -11,6 +11,8 @@ interface Props {
   modele: Verification | null;
   pipeline: Verification | null;
   cuda: Cuda | null;
+  /** Modèle de l'équipe installé par Studio Dock ; undefined : pas encore lu. */
+  equipe: ModeleEquipe | null | undefined;
   occupe: boolean;
   /** Mode fichier : remplace la section « Source audio ». */
   zoneFichier?: React.ReactNode;
@@ -27,7 +29,7 @@ const ACCELERATIONS: { id: Acceleration; label: string }[] = [
   { id: "cpu", label: "CPU" },
 ];
 
-export const SettingsPanel: React.FC<Props> = ({ reglages: r, regler, capacites, peripheriques, actualiser, modele, pipeline, cuda, occupe, zoneFichier }) => {
+export const SettingsPanel: React.FC<Props> = ({ reglages: r, regler, capacites, peripheriques, actualiser, modele, pipeline, cuda, equipe, occupe, zoneFichier }) => {
   const fichier = r.mode === "file";
   const systemeOk = capacites?.system_audio ?? false;
   const avecMicro = r.source !== "system";
@@ -90,11 +92,33 @@ export const SettingsPanel: React.FC<Props> = ({ reglages: r, regler, capacites,
             {capacites && !capacites.stt && (
               <p role="alert" className="m-0 text-[13px] text-warning-text">faster-whisper n'est pas inclus dans cette installation : la transcription réelle est impossible.</p>
             )}
-            <Champ id="modele" label="Dossier du modèle faster-whisper (CTranslate2)"
-              aide={<Verifie resultat={r.model_path.trim() ? modele : null} vide="Renseignez le dossier de votre faster-whisper-small, ou utilisez la simulation." />}>
-              <input id="modele" className="nn-input" value={r.model_path} disabled={occupe} spellCheck={false}
-                placeholder="C:\Users\…\faster-whisper-small" onChange={(e) => regler("model_path", e.target.value)} />
-            </Champ>
+            {equipe && !r.use_own_model ? (
+              <div className="flex flex-col gap-1.5">
+                <span className="text-sm font-medium text-ink">Modèle</span>
+                <span className="nn-chip nn-chip-success self-start">✓ {equipe.name}{equipe.version ? ` ${equipe.version}` : ""}</span>
+                <span className="text-[13px] leading-snug text-ink-muted">Fourni par votre équipe via Studio Dock : rien à régler.</span>
+                <button type="button" className="self-start border-0 bg-transparent p-0 text-[13px] text-accent underline disabled:opacity-60"
+                  disabled={occupe} onClick={() => regler("use_own_model", true)}>Utiliser un autre modèle sur ce poste</button>
+              </div>
+            ) : (
+              <>
+                {equipe === null && (
+                  <p className="m-0 rounded border border-line bg-surface-2 px-3 py-2.5 text-[13px] leading-snug text-ink-body">
+                    Le modèle de transcription est normalement fourni par votre équipe : ouvrez Studio Dock, Réglages › Modèles d'IA ›
+                    Transcription audio. Vous pouvez aussi indiquer ci-dessous le dossier d'un modèle faster-whisper, ou essayer la simulation.
+                  </p>
+                )}
+                <Champ id="modele" label="Dossier du modèle faster-whisper (CTranslate2)"
+                  aide={<Verifie resultat={r.model_path.trim() ? modele : null} vide="Le dossier qui contient config.json et model.bin." />}>
+                  <input id="modele" className="nn-input" value={r.model_path} disabled={occupe} spellCheck={false}
+                    placeholder="C:\Users\…\faster-whisper-small" onChange={(e) => regler("model_path", e.target.value)} />
+                </Champ>
+                {equipe && (
+                  <button type="button" className="self-start border-0 bg-transparent p-0 text-[13px] text-accent underline disabled:opacity-60"
+                    disabled={occupe} onClick={() => regler("use_own_model", false)}>Revenir au modèle de l'équipe ({equipe.name})</button>
+                )}
+              </>
+            )}
             <div className="flex flex-col gap-1.5">
               <span id="accel-label" className="text-sm font-medium text-ink">Calcul</span>
               <div className="nn-segmented" role="group" aria-labelledby="accel-label">
