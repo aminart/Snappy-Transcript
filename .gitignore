@@ -5,3 +5,11 @@ __pycache__/
 output/*
 !output/.gitkeep
 models_local/
+
+# Jetons et secrets : ne jamais les versionner
+tokenpyannoteaudio.txt
+*token*.txt
+
+# Générés
+*.sav
+settings/

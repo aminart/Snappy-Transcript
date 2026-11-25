@@ -1,4 +1,4 @@
-streamlit>=1.40,<2
+streamlit>=1.64,<2
 sounddevice>=0.5,<1
 numpy>=1.26,<3
 soundcard>=0.4.3,<1
