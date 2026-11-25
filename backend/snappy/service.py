@@ -6,6 +6,8 @@ finalisation écrit les exports dès que la transcription est terminée, et la d
 from __future__ import annotations
 
 import logging
+import re
+import secrets
 import threading
 import time
 from dataclasses import dataclass
@@ -17,6 +19,7 @@ from .audio.microphone import MicrophoneSource
 from .audio.system_audio import MixedAudioSource, SystemAudioSource
 from .config import CONFIG
 from .export import segments_to_srt, segments_to_txt
+from .file_session import FileTranscription
 from .models import TranscriptSegment
 from .paths import app_data_dir
 from .session import LiveSession
@@ -138,7 +141,7 @@ class ActiveSession:
             time.sleep(0.2)
         try:
             self._write_raw_exports()
-            if self.diar_wanted:
+            if self.diar_wanted and self.live.wav_path.is_file() and self.raw_segments:
                 self.start_diarization(self.diar_model_path, self.params.speaker_hint)
             else:
                 self._discard_wav_if_unwanted()
@@ -216,7 +219,8 @@ class ActiveSession:
         start_index = after if 0 <= after <= len(segments) else 0   # le client en sait trop : il repart de zéro
         stats = live.stats
         return {
-            "active": True, "id": self.stamp, "status": live.status, "paused": live.is_paused,
+            "active": True, "id": self.stamp, "kind": getattr(live, "kind", "live"),
+            "file": live.progress_info() if hasattr(live, "progress_info") else None, "status": live.status, "paused": live.is_paused,
             "stopping": live.stop_requested, "finalized": self.finished,
             "duration": round(live.duration, 1), "queue": live.queue_size,
             "stats": {"chunks": stats.chunks_processed, "last_latency": round(stats.last_latency, 2),
@@ -266,6 +270,51 @@ def _clean_path(raw: str) -> Path:
     return Path((raw or "").strip().strip('"')).expanduser()
 
 
+# --- Fichiers envoyés par le navigateur ---------------------------------------------------------------------
+# Le navigateur et le serveur sont sur le même PC : l'envoi est une simple copie locale, rien ne passe par le réseau.
+
+_UPLOAD_ID = re.compile(r"[A-Za-z0-9_-]{16,64}(\.[a-z0-9]{1,8})?")
+UPLOAD_MAX_AGE = 24 * 3600
+
+
+def uploads_dir() -> Path:
+    return app_data_dir() / "uploads"
+
+
+def new_upload(name: str) -> tuple[str, Path]:
+    """Identifiant et chemin d'un nouveau fichier envoyé ; nettoie au passage les envois abandonnés de plus d'un jour."""
+    folder = uploads_dir()
+    folder.mkdir(parents=True, exist_ok=True)
+    limite = time.time() - UPLOAD_MAX_AGE
+    for old in folder.iterdir():
+        try:
+            if old.stat().st_mtime < limite:
+                old.unlink()
+        except OSError:
+            pass
+    suffix = Path(name).suffix.lower()
+    suffix = suffix if re.fullmatch(r"\.[a-z0-9]{1,8}", suffix) else ""
+    upload_id = secrets.token_urlsafe(18) + suffix
+    (folder / f"{upload_id}.name").write_text(Path(name).name[:200] or "fichier", encoding="utf-8")
+    return upload_id, folder / upload_id
+
+
+def uploaded_file(upload_id: str) -> Path:
+    if not _UPLOAD_ID.fullmatch(upload_id or ""):
+        raise ServiceError("Envoi inconnu.", 404)
+    path = uploads_dir() / upload_id
+    if not path.is_file():
+        raise ServiceError("Le fichier envoyé n'est plus disponible : choisissez-le à nouveau.", 404)
+    return path
+
+
+def upload_name(upload_id: str) -> str:
+    try:
+        return (uploads_dir() / f"{upload_id}.name").read_text(encoding="utf-8").strip() or upload_id
+    except OSError:
+        return upload_id
+
+
 # --- Gestionnaire --------------------------------------------------------------------------------------------
 
 class Manager:
@@ -313,38 +362,63 @@ class Manager:
             return system
         return MixedAudioSource(mic, system, sample_rate=rate, block_ms=block)
 
+    def _check_free(self) -> None:
+        if self.current and not self.current.finished:
+            raise ServiceError("Une session est déjà en cours.", 409)
+        if self.current and self.current.diar.running:
+            raise ServiceError("Attendez la fin de la diarisation avant de commencer une nouvelle session.", 409)
+
+    @staticmethod
+    def _diarization_choice(p: StartParams) -> tuple[bool, str, str]:
+        """(à lancer, dossier du pipeline, note affichée si elle ne sera pas lancée)."""
+        if not p.diarization:
+            return False, "", ""
+        from .diarization import validate_diarization_model
+        ok, detail = validate_diarization_model(p.diarization_model_path)
+        return (True, detail, "") if ok else (False, "", f"Diarisation non lancée : {detail}")
+
+    def _launch(self, live: Any, stamp: str, p: StartParams, provider: Any) -> dict[str, Any]:
+        wanted, model, note = self._diarization_choice(p)
+        active = ActiveSession(live, stamp, p, provider, note)
+        active.diar_wanted, active.diar_model_path = wanted, model
+        try:
+            live.start()
+        except OSError as exc:
+            raise ServiceError(f"Impossible d'ouvrir la source audio : {exc}", 422) from exc
+        active.watch()
+        self.current = active
+        return active.state()
+
     def start(self, p: StartParams) -> dict[str, Any]:
         with self._lock:
-            if self.current and not self.current.finished:
-                raise ServiceError("Une session est déjà en cours.", 409)
-            if self.current and self.current.diar.running:
-                raise ServiceError("Attendez la fin de la diarisation avant de commencer une nouvelle session.", 409)
+            self._check_free()
             if p.source not in ("microphone", "system", "mixed") or p.engine not in ("local", "mock"):
                 raise ServiceError("Source ou moteur inconnu.", 422)
             provider = self._provider(p)
             source = self._source(p)
             stamp = self._new_stamp()
-
-            note, wanted, model = "", False, ""
-            if p.diarization:
-                from .diarization import validate_diarization_model
-                wanted, detail = validate_diarization_model(p.diarization_model_path)
-                if wanted:
-                    model = detail
-                else:
-                    note = f"Diarisation non lancée : {detail}"
-
             live = LiveSession(source, provider, p.chunk_seconds, p.language, p.save_audio,
                                overlap_seconds=p.overlap_seconds, session_id=stamp)
-            active = ActiveSession(live, stamp, p, provider, note)
-            active.diar_wanted, active.diar_model_path = wanted, model
-            try:
-                live.start()
-            except OSError as exc:
-                raise ServiceError(f"Impossible d'ouvrir la source audio : {exc}", 422) from exc
-            active.watch()
-            self.current = active
-            return active.state()
+            return self._launch(live, stamp, p, provider)
+
+    def start_file(self, p: StartParams, upload_id: str = "", path: str = "") -> dict[str, Any]:
+        """Transcription d'un fichier : envoyé par le navigateur (upload_id) ou déjà sur ce PC (path, jamais modifié)."""
+        with self._lock:
+            self._check_free()
+            if upload_id:
+                source, name, temporary = uploaded_file(upload_id), upload_name(upload_id), True
+            else:
+                source, temporary = _clean_path(path), False
+                if not str(path).strip():
+                    raise ServiceError("Choisissez un fichier.", 422)
+                if not source.is_file():
+                    raise ServiceError(f"Fichier introuvable : {source}", 422)
+                name = source.name
+            provider = self._provider(p)
+            stamp = self._new_stamp()
+            live = FileTranscription(source, provider, p.language, stamp, p.save_audio, display_name=name,
+                                     delete_source=temporary)
+            return self._launch(live, stamp, p, provider)
 
     def _need(self) -> ActiveSession:
         if not self.current:

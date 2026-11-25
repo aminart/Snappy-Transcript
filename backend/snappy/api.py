@@ -5,13 +5,14 @@ import importlib.util
 import sys
 from typing import Any, Literal
 
-from fastapi import APIRouter, Body
+from fastapi import APIRouter, Body, Request
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from .audio.microphone import list_input_devices
 from .audio.system_audio import list_output_devices
-from .service import ServiceError, StartParams, manager
+from .media import EXTENSIONS
+from .service import ServiceError, StartParams, manager, new_upload
 from .settings import load_settings, save_settings
 
 router = APIRouter(prefix="/api")
@@ -34,6 +35,8 @@ def capabilities() -> dict[str, Any]:
         "stt": _present("faster_whisper"),
         "diarization": _present("pyannote.audio") and _present("torch"),
         "system_audio": sys.platform == "win32" and _present("soundcard"),
+        "files": _present("av"),
+        "file_extensions": list(EXTENSIONS),
     }
 
 
@@ -110,6 +113,37 @@ class DemandeDemarrage(BaseModel):
 @router.post("/session/start")
 def start(body: DemandeDemarrage) -> dict[str, Any]:
     return manager.start(StartParams(**body.model_dump()))
+
+
+class DemandeFichier(DemandeDemarrage):
+    upload_id: str = ""  # fichier envoyé par le navigateur (POST /api/upload)
+    path: str = ""       # ou chemin d'un fichier déjà sur ce PC (jamais modifié)
+
+
+@router.post("/upload")
+async def upload(request: Request, name: str = "") -> dict[str, Any]:
+    """Reçoit le fichier brut dans le corps de la requête (sans formulaire) et l'écrit au fil de l'eau sur le disque."""
+    upload_id, path = new_upload(name)
+    size = 0
+    try:
+        with path.open("wb") as out:
+            async for chunk in request.stream():
+                out.write(chunk)
+                size += len(chunk)
+    except Exception:
+        path.unlink(missing_ok=True)
+        path.with_name(path.name + ".name").unlink(missing_ok=True)
+        raise
+    if size == 0:
+        path.unlink(missing_ok=True)
+        raise ServiceError("Le fichier est vide.", 422)
+    return {"upload_id": upload_id, "size": size}
+
+
+@router.post("/session/start-file")
+def start_file(body: DemandeFichier) -> dict[str, Any]:
+    champs = body.model_dump(exclude={"upload_id", "path"})
+    return manager.start_file(StartParams(**champs), upload_id=body.upload_id, path=body.path)
 
 
 @router.get("/session")

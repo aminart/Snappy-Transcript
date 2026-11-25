@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import importlib.metadata
+from collections.abc import Iterator
+
 import numpy as np
 from dataclasses import dataclass
 from pathlib import Path
@@ -89,15 +91,17 @@ class LocalWhisperProvider(TranscriptionProvider):
     def transcribe(self, pcm: bytes, sample_rate: int, offset: float, language: str) -> list[TranscriptSegment]:
         if not pcm:
             return []
+        # Les blocs du micro sont déjà en PCM16 mono : un tableau NumPy évite le décodeur de fichiers (PyAV/FFmpeg).
+        return list(self.transcribe_stream(np.frombuffer(pcm, dtype=np.int16), offset, language))
 
-        # Microphone chunks are already raw PCM16 mono. Passing a NumPy array
-        # bypasses faster-whisper's file decoder (PyAV/FFmpeg) entirely.
-        # faster-whisper expects float32 audio normalized to [-1.0, +1.0].
-        audio = np.frombuffer(pcm, dtype=np.int16)
-        if audio.size == 0:
-            return []
-        audio = audio.astype(np.float32) / 32768.0
+    def transcribe_stream(self, samples: np.ndarray, offset: float, language: str) -> Iterator[TranscriptSegment]:
+        """Segments au fur et à mesure du décodage (fichiers : progression et arrêt possibles entre deux segments).
 
+        `samples` : PCM16 mono à 16 kHz ; faster-whisper attend du float32 normalisé entre -1 et 1.
+        """
+        if samples.size == 0:
+            return
+        audio = samples.astype(np.float32) / 32768.0
         segments, _ = self.model.transcribe(
             audio,
             language=None if language == "auto" else language,
@@ -108,7 +112,6 @@ class LocalWhisperProvider(TranscriptionProvider):
             hotwords=self.glossary or None,
             initial_prompt=(f"Vocabulaire et noms propres possibles : {self.glossary}" if self.glossary else None),
         )
-        result = []
         for s in segments:
             text = s.text.strip()
             if not text:
@@ -122,7 +125,4 @@ class LocalWhisperProvider(TranscriptionProvider):
                 for w in (s.words or [])
                 if (w.word or "").strip()
             )
-            result.append(TranscriptSegment(
-                offset + float(s.start), offset + float(s.end), text, words=words
-            ))
-        return result
+            yield TranscriptSegment(offset + float(s.start), offset + float(s.end), text, words=words)

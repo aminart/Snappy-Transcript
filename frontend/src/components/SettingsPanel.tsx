@@ -12,6 +12,8 @@ interface Props {
   pipeline: Verification | null;
   cuda: Cuda | null;
   occupe: boolean;
+  /** Mode fichier : remplace la section « Source audio ». */
+  zoneFichier?: React.ReactNode;
 }
 
 const SOURCES: { id: Source; label: string }[] = [
@@ -25,7 +27,8 @@ const ACCELERATIONS: { id: Acceleration; label: string }[] = [
   { id: "cpu", label: "CPU" },
 ];
 
-export const SettingsPanel: React.FC<Props> = ({ reglages: r, regler, capacites, peripheriques, actualiser, modele, pipeline, cuda, occupe }) => {
+export const SettingsPanel: React.FC<Props> = ({ reglages: r, regler, capacites, peripheriques, actualiser, modele, pipeline, cuda, occupe, zoneFichier }) => {
+  const fichier = r.mode === "file";
   const systemeOk = capacites?.system_audio ?? false;
   const avecMicro = r.source !== "system";
   const avecSysteme = r.source !== "microphone";
@@ -36,6 +39,7 @@ export const SettingsPanel: React.FC<Props> = ({ reglages: r, regler, capacites,
 
   return (
     <div className="flex flex-col gap-4">
+      {fichier ? zoneFichier : (
       <Section titre="Source audio">
         <Champ id="source" label="Source">
           <select id="source" className="nn-input" value={r.source} disabled={occupe}
@@ -71,6 +75,7 @@ export const SettingsPanel: React.FC<Props> = ({ reglages: r, regler, capacites,
         )}
         <button type="button" className="nn-btn nn-btn-secondary self-start" onClick={actualiser} disabled={occupe}>Actualiser les périphériques</button>
       </Section>
+      )}
 
       <Section titre="Transcription">
         <Champ id="moteur" label="Moteur">
@@ -118,6 +123,7 @@ export const SettingsPanel: React.FC<Props> = ({ reglages: r, regler, capacites,
           <textarea id="glossaire" className="nn-input min-h-[72px] py-2" value={r.glossary} disabled={occupe}
             placeholder="Ex. Jabber, RTX A1000, nom de projet…" onChange={(e) => regler("glossary", e.target.value)} />
         </Champ>
+        {!fichier && (<>
         <Champ id="chunk" label={`Durée des blocs : ${r.chunk_seconds} s`}>
           <input id="chunk" type="range" min={3} max={15} step={1} className="w-full accent-primary" value={r.chunk_seconds} disabled={occupe}
             onChange={(e) => regler("chunk_seconds", Number(e.target.value))} />
@@ -128,6 +134,7 @@ export const SettingsPanel: React.FC<Props> = ({ reglages: r, regler, capacites,
             value={Math.min(r.overlap_seconds, r.chunk_seconds - 0.5)} disabled={occupe}
             onChange={(e) => regler("overlap_seconds", Number(e.target.value))} />
         </Champ>
+        </>)}
         {local && (
           <label className="nn-check"><input type="checkbox" checked={r.vad_filter} disabled={occupe}
             onChange={(e) => regler("vad_filter", e.target.checked)} /> <span>Ignorer les silences (VAD)</span></label>

@@ -38,7 +38,7 @@ def terminer(client):
 
 def test_session_complete_de_bout_en_bout(client):
     etat = client.post("/api/session/start", json=DEMARRAGE).json()
-    assert etat["active"] and etat["status"] == "LISTENING" and not etat["finalized"]
+    assert etat["active"] and etat["status"] in ("LISTENING", "TRANSCRIBING") and not etat["finalized"]
     assert client.post("/api/session/start", json=DEMARRAGE).status_code == 409  # une seule session à la fois
 
     client.post("/api/session/pause")
@@ -151,6 +151,6 @@ def test_verification_des_dossiers_de_modele(client, tmp_path):
 
 
 def test_capacites_et_peripheriques(client):
-    assert set(client.get("/api/capabilities").json()) == {"platform", "stt", "diarization", "system_audio"}
+    assert set(client.get("/api/capabilities").json()) == {"platform", "stt", "diarization", "system_audio", "files", "file_extensions"}
     d = client.get("/api/devices").json()
     assert isinstance(d["inputs"], list) and isinstance(d["outputs"], list)

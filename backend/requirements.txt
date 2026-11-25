@@ -1,5 +1,7 @@
 fastapi>=0.110
 uvicorn>=0.29
 numpy>=1.26,<3
+# Lecture des fichiers audio et vidéo : PyAV embarque FFmpeg (aucune installation à part)
+av>=12
 sounddevice>=0.5,<1
 soundcard>=0.4.3,<1; sys_platform == "win32"

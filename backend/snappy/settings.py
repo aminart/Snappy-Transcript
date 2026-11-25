@@ -11,6 +11,7 @@ from typing import Any
 from .paths import app_data_dir
 
 DEFAULTS: dict[str, Any] = {
+    "mode": "live",                  # live (micro / son du PC) | file (fichier audio ou vidéo)
     "source": "microphone",          # microphone | system | mixed
     "engine": "local",               # local | mock
     "input_device": "",              # nom du micro ; vide : le premier détecté
