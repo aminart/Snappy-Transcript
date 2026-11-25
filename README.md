@@ -53,7 +53,12 @@ Prérequis : Python 3.11+ et Node.js 20+.
 2. Double-cliquez sur **`start.bat`** : le navigateur s'ouvre sur http://127.0.0.1:8110. Fermez la fenêtre noire pour
    arrêter l'application.
 
-Sans modèle de transcription, choisissez **Réglages avancés › Moteur › Simulation** pour tout essayer. Sur Mac :
+Sans modèle de transcription, choisissez **Réglages avancés › Moteur › Simulation** pour tout essayer.
+
+Le design system Night Navy est inclus dans le dépôt (`frontend/vendor/night-navy-1.2.1.tgz`) : npm n'a pas besoin
+d'accéder à GitHub, souvent bloqué sur le réseau de l'entreprise. Pour passer à une nouvelle version de Night Navy :
+`npm pack` dans le dépôt Design-system- à la bonne étiquette, remplacer le .tgz, mettre à jour `package.json`, puis
+`npm install`. Sur Mac :
 `./install.sh` puis `./start.sh`.
 
 ## Développer
