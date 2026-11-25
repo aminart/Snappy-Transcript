@@ -2,6 +2,12 @@
 
 ## [Non publié]
 
+- Démarrage immédiat : le modèle de transcription se prépare dès l'ouverture de la page (« ✓ Modèle prêt ») et reste
+  en mémoire d'une session à l'autre.
+- Un seul texte à corriger : avec les intervenants dès qu'ils sont identifiés ; chaque correction est reportée dans le
+  texte seul (toujours exportable). Ctrl+Z annule la dernière correction ou le dernier remplacement.
+- Mes transcriptions plus rapide avec beaucoup de sessions (index), place occupée sur le poste, « Supprimer l'audio,
+  garder le texte » pour une session et « Libérer de la place » pour les plus anciennes.
 - Nouvel écran « Transcrire » : grand bouton d'enregistrement et liste « Prêt ? » (source, application, micro,
   langue, mots à bien reconnaître, intervenants) modifiable sur place ; la source est testée avant de démarrer
   (« On vous entend », « Teams est bien capté »). Les réglages techniques sont repliés dans « Réglages avancés ».

@@ -126,6 +126,32 @@ function useApercu(actif: boolean, corps: Record<string, unknown>): Apercu | nul
   return etat;
 }
 
+interface EtatModele { state: "idle" | "loading" | "ready" | "error"; message: string; device: string }
+
+/** Charge le modèle en arrière-plan dès que la page est prête : « Démarrer » part ensuite tout de suite. */
+function usePrechargement(actif: boolean, corps: { model_path: string; acceleration: string }): EtatModele | null {
+  const [etat, setEtat] = React.useState<EtatModele | null>(null);
+  const cle = JSON.stringify(corps);
+  React.useEffect(() => {
+    if (!actif) return;
+    let arrete = false;
+    const t = setTimeout(async () => {
+      try { setEtat(await api<EtatModele>("/api/model/preload", { method: "POST", json: JSON.parse(cle) })); }
+      catch (e) { if (!arrete) setEtat({ state: "error", message: messageErreur(e), device: "" }); return; }
+      while (!arrete) {
+        await new Promise((r) => setTimeout(r, 700));
+        try {
+          const e = await api<EtatModele>("/api/model/preload");
+          if (!arrete) setEtat(e);
+          if (e.state !== "loading") return;
+        } catch { /* on réessaie */ }
+      }
+    }, 600);
+    return () => { arrete = true; clearTimeout(t); };
+  }, [actif, cle]);
+  return actif ? etat : null;
+}
+
 const MODES: { id: Mode; titre: string; detail: string; icone: React.ReactNode }[] = [
   {
     id: "live", titre: "En direct", detail: "Micro ou son du PC, pendant une réunion",
@@ -264,6 +290,9 @@ export const Transcription: React.FC = () => {
     return () => window.removeEventListener("keydown", ecouter);
   }, []);
 
+  const prechargement = usePrechargement(accueil && !!r && r.engine === "local" && capacites?.stt !== false
+    && (!!equipe && !r.use_own_model || modele?.valid === true),
+  { model_path: r && !(equipe && !r.use_own_model) ? r.model_path : "", acceleration: r?.acceleration ?? "auto" });
   const { modeleOk, bloc: blocModele } = useBlocModele(r ?? ({} as Settings), regler, capacites, equipe, modele, occupe || demarrage);
   if (!r) return <p className="m-0 text-sm text-ink-muted">Chargement…</p>;
 
@@ -456,11 +485,19 @@ export const Transcription: React.FC = () => {
                 <span className="sr-only">Démarrer l'enregistrement</span>
               </button>
               <div id="demarrer-detail" className="text-center">
-                <div className="text-[19px] font-bold text-ink" aria-hidden="true">{demarrage ? (r.engine === "local" ? "Chargement du modèle…" : "Démarrage…") : "Démarrer l'enregistrement"}</div>
+                <div className="text-[19px] font-bold text-ink" aria-hidden="true">{demarrage ? (r.engine === "local" && prechargement?.state !== "ready" ? "Chargement du modèle…" : "Démarrage…") : "Démarrer l'enregistrement"}</div>
                 <div className="mt-1 text-sm text-ink-muted">{resume}</div>
                 <div className="mt-0.5 text-[13px] text-ink-subtle">Espace : pause · Échap : arrêter · M : marquer un moment</div>
               </div>
             </>
+          )}
+          {prechargement && !pourquoiPas && (
+            <p role="status" className={`m-0 flex items-center gap-1.5 text-[12px] ${prechargement.state === "error" ? "max-w-[320px] text-center text-warning-text" : "text-ink-subtle"}`}>
+              {prechargement.state === "loading" && <span className="h-3 w-3 animate-spin rounded-full border-2 border-line-strong border-t-accent" aria-hidden="true" />}
+              {prechargement.state === "loading" ? "Préparation du modèle de transcription…"
+                : prechargement.state === "ready" ? `✓ Modèle prêt${prechargement.device ? ` (${prechargement.device.startsWith("CUDA") ? "carte graphique" : "processeur"})` : ""}`
+                : prechargement.state === "error" ? `Le modèle n'a pas pu être chargé : ${prechargement.message}` : ""}
+            </p>
           )}
           {pourquoiPas && <p className="m-0 max-w-[320px] text-center text-[13px] text-warning-text">{pourquoiPas}</p>}
         </div>
