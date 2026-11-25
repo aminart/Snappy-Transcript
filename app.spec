@@ -37,7 +37,7 @@ else:
 # (voir build_exe.bat : options « gpu » et « diarisation »).
 datas = [(os.path.join(SPECPATH, "frontend", "dist"), "interface"), (os.path.join(SPECPATH, "VERSION"), ".")]
 binaries, hiddenimports = [], list(collect_submodules("uvicorn"))
-for paquet in ("faster_whisper", "ctranslate2", "onnxruntime", "tokenizers", "av", "soundcard", "sounddevice",
+for paquet in ("faster_whisper", "ctranslate2", "onnxruntime", "tokenizers", "av", "soundcard", "sounddevice", "comtypes", "psutil",
                "_sounddevice_data", "nvidia.cublas", "nvidia.cudnn", "pyannote.audio", "pyannote.core", "pyannote.pipeline",
                "pyannote.database", "pyannote.metrics", "lightning_fabric", "pytorch_lightning", "asteroid_filterbanks",
                "speechbrain"):

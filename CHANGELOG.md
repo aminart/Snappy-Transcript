@@ -2,6 +2,13 @@
 
 ## [Non publié]
 
+- Menu simplifié : « Transcrire » et « Mes transcriptions » (ex-« Historique »). L'onglet « À propos » est retiré :
+  la version s'affiche en pied de page.
+- « Qu'est-ce qu'on écoute ? » : ma voix, une application, tout le son de l'ordinateur, ou ma voix + une application.
+  Le son d'une seule application (Teams, Zoom, Chrome…) est capté sans les notifications ni la musique (Windows 10
+  version 2004 ou plus récent) ; la liste montre les applications ouvertes, celles qui font du son d'abord, et
+  « Ma voix + une application » est recommandé quand une visio est détectée. Sur un Windows plus ancien, l'interface
+  le dit et propose tout le son de l'ordinateur.
 - Vu-mètre pendant l'enregistrement, et alerte quand aucun son n'arrive depuis 10 secondes (micro coupé, mauvaise entrée).
 - Barre d'actions toujours visible (Démarrer, Pause, Arrêter, durée, niveau), en bas de l'écran sur téléphone ;
   raccourcis Espace (pause / reprise) et Échap (arrêter) ; « La transcription prend du retard » quand c'est le cas.

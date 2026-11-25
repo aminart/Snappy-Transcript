@@ -10,6 +10,9 @@ export interface Settings {
   engine: Engine;
   input_device: string;
   output_device: string;
+  /** Programme dont on capte le son seul (« ms-teams.exe ») ; vide : tout le son de l'ordinateur. */
+  app: string;
+  app_name: string;
   model_path: string;
   use_own_model: boolean;
   acceleration: Acceleration;
@@ -29,6 +32,8 @@ export interface Capabilities {
   stt: boolean;
   diarization: boolean;
   system_audio: boolean;
+  /** Le son d'une seule application peut être capté (Windows 10 2004 ou plus récent). */
+  app_audio: boolean;
   files: boolean;
   file_extensions: string[];
 }
@@ -36,6 +41,9 @@ export interface Capabilities {
 export interface InputDevice { index: number; name: string; channels: number; default_samplerate: number }
 export interface OutputDevice { name: string; id: string }
 export interface Devices { inputs: InputDevice[]; input_error: string; outputs: OutputDevice[] }
+
+export interface AppAudio { exe: string; name: string; pid: number; active: boolean; level: number; visio: boolean }
+export interface Applications { supported: boolean; reason: string; apps: AppAudio[]; recommended: string }
 
 export interface Verification { valid: boolean; message: string; name?: string; missing?: string[] }
 export interface ModeleEquipe { name: string; version: string | null; path: string }

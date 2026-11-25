@@ -51,6 +51,7 @@ class StartParams:
     engine: str = "local"                # local | mock
     input_device: int | None = None
     output_device: str = ""
+    app: str = ""                        # programme dont on capte le son (« ms-teams.exe ») ; vide : tout le son
     model_path: str = ""
     acceleration: str = "auto"
     language: str = "fr"
@@ -506,12 +507,27 @@ class Manager:
                 raise ServiceError("Aucun microphone sélectionné.", 422)
             mic = MicrophoneSource(device=p.input_device, sample_rate=rate, channels=1, block_ms=block)
         if p.source in ("system", "mixed"):
-            system = SystemAudioSource(p.output_device or None, sample_rate=rate, channels=1, block_ms=block)
+            system = self._app_source(p.app, rate, block) if p.app.strip() else \
+                SystemAudioSource(p.output_device or None, sample_rate=rate, channels=1, block_ms=block)
         if p.source == "microphone":
             return mic
         if p.source == "system":
             return system
         return MixedAudioSource(mic, system, sample_rate=rate, block_ms=block)
+
+    @staticmethod
+    def _app_source(exe: str, rate: int, block: int):
+        """Son d'une seule application, retrouvée par son programme parmi celles ouvertes maintenant."""
+        from .audio import app_audio
+        ok, raison = app_audio.app_capture_status()
+        if not ok:
+            raise ServiceError(raison, 422)
+        app = app_audio.choisir(app_audio.list_audio_apps(), exe)
+        if app is None:
+            nom = app_audio.nom_lisible(exe.lower().strip())
+            raise ServiceError(f"{nom} n'est pas ouvert, ou n'a encore produit aucun son. Lancez la réunion (ou la vidéo), "
+                               "puis réessayez ; vous pouvez aussi choisir « Tout le son de l'ordinateur ».", 422)
+        return app_audio.ProcessLoopbackSource(app.pid, app.name, sample_rate=rate, block_ms=block)
 
     def _check_free(self) -> None:
         if self.current and not self.current.finished:

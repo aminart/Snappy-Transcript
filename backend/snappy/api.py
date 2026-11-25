@@ -10,6 +10,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from .audio.microphone import list_input_devices
+from .audio.app_audio import app_capture_status, list_audio_apps, recommandee
 from .audio.system_audio import list_output_devices
 from .media import EXTENSIONS
 from .service import ServiceError, StartParams, manager, new_upload
@@ -35,6 +36,7 @@ def capabilities() -> dict[str, Any]:
         "stt": _present("faster_whisper"),
         "diarization": _present("pyannote.audio") and _present("torch"),
         "system_audio": sys.platform == "win32" and _present("soundcard"),
+        "app_audio": app_capture_status()[0],
         "files": _present("av"),
         "file_extensions": list(EXTENSIONS),
     }
@@ -48,6 +50,15 @@ def devices() -> dict[str, Any]:
     except Exception as exc:  # PortAudio absent, aucun périphérique…
         input_error = f"{type(exc).__name__}: {exc}"
     return {"inputs": inputs, "input_error": input_error, "outputs": list_output_devices()}
+
+
+@router.get("/audio-apps")
+def audio_apps() -> dict[str, Any]:
+    """Applications ouvertes qui utilisent le son, celles qui en font en ce moment d'abord (rappelé souvent)."""
+    ok, raison = app_capture_status()
+    apps = list_audio_apps() if ok else []
+    reco = recommandee(apps)
+    return {"supported": ok, "reason": raison, "apps": [a.to_dict() for a in apps], "recommended": reco.exe if reco else ""}
 
 
 @router.get("/cuda")
@@ -106,6 +117,7 @@ class DemandeDemarrage(BaseModel):
     engine: Literal["local", "mock"] = "local"
     input_device: int | None = None
     output_device: str = ""
+    app: str = Field("", max_length=260)
     model_path: str = ""
     acceleration: Literal["auto", "gpu", "cpu"] = "auto"
     language: Literal["fr", "en", "auto"] = "fr"

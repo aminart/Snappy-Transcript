@@ -3,32 +3,24 @@ import { Historique } from "./Historique";
 import { Transcription } from "./Transcription";
 
 /*
- * Coque de l'app : en-tête commun de la suite (nn-appbar), deux pages. Règle de la suite : seule l'icône a sa couleur
+ * Coque de l'app : en-tête commun de la suite (nn-appbar), deux pages (Transcrire, Mes transcriptions), version en pied de page. Règle de la suite : seule l'icône a sa couleur
  * propre ; tout le reste suit Night Navy. Les pages sont dans Transcription.tsx.
  */
 
-type Page = "transcription" | "historique" | "a-propos";
+type Page = "transcription" | "historique";
 
 interface Sante {
   name: string;
   version: string;
 }
 
-interface EtatIA {
-  configure: boolean;
-  connexion?: string;
-  modele?: string;
-  local?: boolean;
-}
-
 const PAGES: { id: Page; label: string }[] = [
-  { id: "transcription", label: "Transcription" },
-  { id: "historique", label: "Historique" },
-  { id: "a-propos", label: "À propos" },
+  { id: "transcription", label: "Transcrire" },
+  { id: "historique", label: "Mes transcriptions" },
 ];
 
 const pageDepuisAdresse = (): Page =>
-  window.location.hash === "#/a-propos" ? "a-propos" : window.location.hash === "#/historique" ? "historique" : "transcription";
+  window.location.hash === "#/historique" ? "historique" : "transcription";
 
 export const App: React.FC = () => {
   const [page, setPage] = React.useState<Page>(pageDepuisAdresse);
@@ -68,8 +60,12 @@ export const App: React.FC = () => {
       </header>
 
       <main className="mx-auto flex max-w-[1280px] flex-col gap-6 px-6 py-8">
-        {page === "transcription" ? <Transcription /> : page === "historique" ? <Historique /> : <APropos sante={sante} />}
+        {page === "transcription" ? <Transcription /> : <Historique />}
       </main>
+      {/* Version, pour le support : discrète, plus d'onglet « À propos » */}
+      <footer className="mx-auto max-w-[1280px] px-6 pb-6 text-[12px] text-ink-muted">
+        {nom}{sante?.version ? ` ${sante.version}` : ""} · tout reste sur cet ordinateur
+      </footer>
     </div>
   );
 };
@@ -97,36 +93,3 @@ const BoutonTheme: React.FC = () => {
   );
 };
 
-/* ---------- À propos : version et modèle d'IA réglé dans Studio Dock ---------- */
-
-const APropos: React.FC<{ sante: Sante | null }> = ({ sante }) => {
-  const [ia, setIa] = React.useState<EtatIA | null>(null);
-  React.useEffect(() => {
-    fetch("/api/ia").then((r) => r.json()).then(setIa).catch(() => setIa({ configure: false }));
-  }, []);
-
-  return (
-    <>
-      <div className="nn-page-head">
-        <div>
-          <h1 className="nn-page-title">À propos</h1>
-          <p className="nn-page-subtitle">Version de l'app et réglages reçus de Studio Dock.</p>
-        </div>
-      </div>
-      <dl className="nn-card m-0 grid gap-x-6 gap-y-3 p-6 text-sm" style={{ gridTemplateColumns: "180px minmax(0, 1fr)" }}>
-        <dt className="text-ink-muted">Version</dt>
-        <dd className="m-0 text-ink">{sante?.version ?? "…"}</dd>
-        <dt className="text-ink-muted">Confidentialité</dt>
-        <dd className="m-0 text-ink">La transcription et la diarisation sont locales : aucun audio n'est envoyé sur le réseau.</dd>
-        <dt className="text-ink-muted">Modèle d'IA de Studio Dock</dt>
-        <dd className="m-0">
-          {!ia ? "…" : ia.configure ? (
-            <span className="nn-chip nn-chip-ia">{ia.modele} · {ia.connexion}</span>
-          ) : (
-            <span className="text-ink-muted">Aucun : à régler dans Studio Dock, Réglages › Modèles d'IA.</span>
-          )}
-        </dd>
-      </dl>
-    </>
-  );
-};

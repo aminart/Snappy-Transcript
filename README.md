@@ -10,7 +10,9 @@ Elle remplace l'ancienne interface Streamlit (Audio Transcriber 1.5.7), dont ell
 
 ## Ce qu'elle fait
 
-- **Sources** : microphone ; audio système Windows (WASAPI loopback, sans pilote virtuel) ; micro + audio système mélangés.
+- **Sources** : microphone ; son d'une seule application (Teams, Zoom, navigateur… — WASAPI « process loopback »,
+  Windows 10 2004 ou plus récent) ; tout le son de l'ordinateur (WASAPI loopback, sans pilote virtuel) ; le micro
+  mélangé à l'une ou l'autre.
 - **Transcription** : faster-whisper en local, CPU (`int8`) ou GPU NVIDIA (`float16`) avec repli automatique ; glossaire métier
   (mots favorisés pendant le décodage) ; blocs de 3 à 15 s avec recouvrement dédupliqué ; ignorer les silences (VAD).
 - **Fichiers audio et vidéo**, dans leur format d'origine, sans conversion : MP3, WAV, M4A, AAC, FLAC, OGG, Opus, WMA, AIFF,
