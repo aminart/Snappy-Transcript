@@ -79,6 +79,26 @@ const Direct: React.FC<{ segments: Segment[]; horodatage: boolean }> = ({ segmen
   );
 };
 
+/** Annonce aux lecteurs d'écran la fin de la transcription et de l'identification des intervenants. */
+function useAnnonce(state: SessionState | null): string {
+  const [annonce, setAnnonce] = React.useState("");
+  const avant = React.useRef<{ id: string; fini: boolean; diar: string } | null>(null);
+  React.useEffect(() => {
+    const p = avant.current;
+    if (state && p && p.id === state.id) {
+      if (!p.fini && state.finalized) {
+        setAnnonce(state.status === "ERROR" ? "La transcription s'est arrêtée sur une erreur." : "Transcription terminée : le texte est prêt.");
+      } else if (p.diar === "RUNNING" && state.diarization.status === "DONE") {
+        setAnnonce("Intervenants identifiés.");
+      } else if (p.diar === "RUNNING" && state.diarization.status === "ERROR") {
+        setAnnonce("L'identification des intervenants a échoué ; le texte reste intact.");
+      }
+    }
+    avant.current = state ? { id: state.id, fini: state.finalized, diar: state.diarization.status } : null;
+  }, [state]);
+  return annonce;
+}
+
 /** Niveau du son reçu, plusieurs fois par seconde, et alerte si plus rien n'arrive. */
 function useNiveau(actif: boolean): Niveau {
   const [niveau, setNiveau] = React.useState<Niveau>({ level: null, silence: 0 });
@@ -192,6 +212,7 @@ export const Transcription: React.FC = () => {
   const enCours = occupe && !state!.stopping;
   const ecoute = enCours && state!.kind === "live" && !state!.paused;
   const niveau = useNiveau(ecoute);
+  const annonce = useAnnonce(state);
 
   // Raccourcis pendant une session : Espace = pause / reprise, Échap = arrêter (hors champs de saisie)
   const raccourcis = React.useRef<(e: KeyboardEvent) => void>(() => undefined);
@@ -284,7 +305,8 @@ export const Transcription: React.FC = () => {
     : "";
 
   const barre = (
-    <div className="fixed inset-x-0 bottom-0 z-20 flex flex-col gap-2 border-t border-line bg-surface px-4 py-3 shadow-[0_-4px_16px_rgba(0,0,0,0.08)]
+    <div id="commandes" tabIndex={-1} aria-label="Commandes" role="region"
+      className="fixed inset-x-0 bottom-0 z-20 flex flex-col gap-2 outline-none focus-visible:ring-2 focus-visible:ring-focus border-t border-line bg-surface px-4 py-3 shadow-[0_-4px_16px_rgba(0,0,0,0.08)]
       lg:sticky lg:inset-x-auto lg:bottom-auto lg:top-[76px] lg:rounded-lg lg:border lg:px-4 lg:shadow-sm">
       <div className="flex flex-wrap items-center gap-2">
         {(!state || state.finalized) ? (
@@ -322,6 +344,11 @@ export const Transcription: React.FC = () => {
 
   return (
     <div className="pb-28 lg:pb-0">
+      <a href="#commandes" onClick={(e) => { e.preventDefault(); document.getElementById("commandes")?.focus(); }}
+        className="sr-only focus:not-sr-only focus:absolute focus:left-6 focus:top-20 focus:z-30 focus:rounded focus:bg-surface focus:px-3 focus:py-2 focus:text-sm focus:text-accent focus:shadow">
+        Aller aux commandes (Démarrer, Pause, Arrêter)
+      </a>
+      <p className="sr-only" aria-live="polite">{annonce}</p>
       <div className="nn-page-head">
         <div>
           <h1 className="nn-page-title">{modeFichier ? "Transcrire un fichier" : "Transcription en direct"}</h1>
