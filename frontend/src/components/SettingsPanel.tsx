@@ -1,12 +1,15 @@
 import React from "react";
 import { Champ, Section, Verifie } from "./ui";
-import type { Acceleration, Capabilities, Cuda, Devices, ModeleEquipe, Settings, Source, Verification } from "../types";
+import { ChoixSource, type Ecoute, ListeApplications, avecApplication, ecouteDe, versSource } from "./ChoixSource";
+import type { Acceleration, AppAudio, Applications, Capabilities, Cuda, Devices, ModeleEquipe, Settings, Verification } from "../types";
 
 interface Props {
   reglages: Settings;
   regler: <K extends keyof Settings>(cle: K, valeur: Settings[K]) => void;
   capacites: Capabilities | null;
   peripheriques: Devices | null;
+  /** Applications qui utilisent le son (rafraîchies tant que la liste est affichée). */
+  applications: Applications | null;
   actualiser: () => void;
   modele: Verification | null;
   pipeline: Verification | null;
@@ -18,11 +21,6 @@ interface Props {
   zoneFichier?: React.ReactNode;
 }
 
-const SOURCES: { id: Source; label: string }[] = [
-  { id: "microphone", label: "Microphone" },
-  { id: "system", label: "Son du PC (Teams, navigateur…)" },
-  { id: "mixed", label: "Microphone + son du PC" },
-];
 const ACCELERATIONS: { id: Acceleration; label: string }[] = [
   { id: "auto", label: "Automatique" },
   { id: "gpu", label: "GPU NVIDIA" },
@@ -35,11 +33,12 @@ const lien = "self-start border-0 bg-transparent p-0 text-[13px] text-accent und
  * la technique (moteur, modèle, calcul, blocs, VAD, pipeline) est repliée dans « Réglages avancés », sauf quand
  * elle demande une action (modèle absent, pipeline à indiquer).
  */
-export const SettingsPanel: React.FC<Props> = ({ reglages: r, regler, capacites, peripheriques, actualiser, modele, pipeline, cuda, equipe, occupe, zoneFichier }) => {
+export const SettingsPanel: React.FC<Props> = ({ reglages: r, regler, capacites, peripheriques, applications, actualiser, modele, pipeline, cuda, equipe, occupe, zoneFichier }) => {
   const fichier = r.mode === "file";
   const systemeOk = capacites?.system_audio ?? false;
+  const ecoute = ecouteDe(r);
   const avecMicro = r.source !== "system";
-  const avecSysteme = r.source !== "microphone";
+  const toutLeSon = ecoute === "tout" || ecoute === "voix_tout";
   const entrees = peripheriques?.inputs ?? [];
   const sorties = peripheriques?.outputs ?? [];
   const micChoisi = entrees.find((d) => d.name === r.input_device) ?? entrees[0];
@@ -49,6 +48,16 @@ export const SettingsPanel: React.FC<Props> = ({ reglages: r, regler, capacites,
   const diarisationDispo = capacites?.diarization !== false;
   const intervenants = r.diarization && diarisationDispo;
   const pipelineOk = pipeline?.valid === true;
+
+  const choisirApp = (a: AppAudio) => { regler("app", a.exe); regler("app_name", a.name); };
+  const changerEcoute = (e: Ecoute) => {
+    regler("source", versSource(e));
+    if (!avecApplication(e)) { regler("app", ""); return; }
+    if (r.app) return;
+    const apps = applications?.apps ?? [];
+    const a = apps.find((x) => x.exe === applications?.recommended) ?? apps.find((x) => x.active) ?? apps[0];
+    if (a) choisirApp(a);
+  };
 
   const blocModele = local && (
     <div className="flex flex-col gap-2">
@@ -97,20 +106,13 @@ export const SettingsPanel: React.FC<Props> = ({ reglages: r, regler, capacites,
     <div className="flex flex-col gap-4">
       {fichier ? zoneFichier : (
         <Section titre="Source audio">
-          <Champ id="source" label="Que faut-il écouter ?">
-            <select id="source" className="nn-input" value={r.source} disabled={occupe}
-              onChange={(e) => regler("source", e.target.value as Source)}>
-              {SOURCES.map((s) => (
-                <option key={s.id} value={s.id} disabled={s.id !== "microphone" && !systemeOk}>{s.label}</option>
-              ))}
-            </select>
-          </Champ>
-          {!systemeOk && capacites && (
-            <p className="m-0 text-[13px] text-ink-muted">
-              {capacites.platform === "win32" ? "Le son du PC n'est pas disponible dans cette installation." : "Le son du PC ne peut être capté que sous Windows."}
-            </p>
+          <ChoixSource ecoute={ecoute} changer={changerEcoute} applications={applications} systeme={systemeOk} bloque={occupe}
+            raisonSysteme={capacites ? (capacites.platform === "win32" ? "Le son de l'ordinateur n'est pas disponible dans cette installation."
+              : "Le son de l'ordinateur et des applications ne peut être capté que sous Windows.") : ""} />
+          {avecApplication(ecoute) && (
+            <ListeApplications applications={applications} choisie={r.app} nomChoisie={r.app_name} choisir={choisirApp} bloque={occupe} />
           )}
-          {avecSysteme && systemeOk && (
+          {r.source === "mixed" && systemeOk && (
             <p className="m-0 text-[13px] leading-snug text-ink-muted">Avec des haut-parleurs, le micro réentend vos interlocuteurs : un casque évite les doublons.</p>
           )}
           {avecMicro && (
@@ -122,8 +124,8 @@ export const SettingsPanel: React.FC<Props> = ({ reglages: r, regler, capacites,
               </select>
             </Champ>
           )}
-          {avecSysteme && systemeOk && (
-            <Champ id="sortie" label="Haut-parleurs ou casque à écouter">
+          {toutLeSon && systemeOk && (
+            <Champ id="sortie" label="Sortie où vous entendez la réunion">
               <select id="sortie" className="nn-input" disabled={occupe || sorties.length === 0} value={r.output_device || sorties[0]?.name || ""}
                 onChange={(e) => regler("output_device", e.target.value)}>
                 {sorties.map((s) => <option key={s.id} value={s.name}>{s.name}</option>)}

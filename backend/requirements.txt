@@ -5,3 +5,6 @@ numpy>=1.26,<3
 av>=12
 sounddevice>=0.5,<1
 soundcard>=0.4.3,<1; sys_platform == "win32"
+# Son d'une seule application (Teams, Zoom…) : WASAPI « process loopback » via comtypes ; psutil retrouve l'application
+comtypes>=1.4; sys_platform == "win32"
+psutil>=5.9; sys_platform == "win32"

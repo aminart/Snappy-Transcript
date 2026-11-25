@@ -114,7 +114,12 @@ class MixedAudioSource(AudioSource):
             try:q.get_nowait();q.put_nowait(b)
             except queue.Empty:pass
     def start(self):
-        self._stop.clear(); self.microphone.start(); self.system.start()
+        self._stop.clear(); self.microphone.start()
+        try:
+            self.system.start()
+        except BaseException:
+            self.microphone.stop()  # le micro ne doit pas rester ouvert si la seconde source est refusée
+            raise
         def pump(src,q):
             while not self._stop.is_set():
                 try:

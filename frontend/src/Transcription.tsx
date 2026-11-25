@@ -2,11 +2,12 @@ import React from "react";
 import { api, envoyerFichier, messageErreur } from "./api";
 import { DiarizationPanel } from "./components/DiarizationPanel";
 import { type ChoixFichier, FilePicker } from "./components/FilePicker";
+import { avecApplication, ecouteDe } from "./components/ChoixSource";
 import { SettingsPanel } from "./components/SettingsPanel";
 import { Resultat } from "./components/Resultat";
 import { Alerte, Progression, Section } from "./components/ui";
 import { LIBELLES_STATUT, duree, hms } from "./format";
-import type { AvancementFichier, Capabilities, Cuda, Devices, Mode, ModeleEquipe, Niveau, Segment, Settings, SessionState, Verification } from "./types";
+import type { Applications, AvancementFichier, Capabilities, Cuda, Devices, Mode, ModeleEquipe, Niveau, Segment, Settings, SessionState, Verification } from "./types";
 import { useSession } from "./useSession";
 
 const LIGNES_AFFICHEES = 400;
@@ -97,6 +98,24 @@ function useAnnonce(state: SessionState | null): string {
     avant.current = state ? { id: state.id, fini: state.finalized, diar: state.diarization.status } : null;
   }, [state]);
   return annonce;
+}
+
+/** Applications qui utilisent le son, rafraîchies toutes les 2 s tant que le choix de la source est ouvert. */
+function useApplications(actif: boolean): Applications | null {
+  const [apps, setApps] = React.useState<Applications | null>(null);
+  React.useEffect(() => {
+    if (!actif) return;
+    let arrete = false;
+    const boucle = async () => {
+      while (!arrete) {
+        try { const a = await api<Applications>("/api/audio-apps"); if (!arrete) setApps(a); } catch { /* on réessaie */ }
+        await new Promise((r) => setTimeout(r, 2000));
+      }
+    };
+    boucle();
+    return () => { arrete = true; };
+  }, [actif]);
+  return apps;
 }
 
 /** Niveau du son reçu, plusieurs fois par seconde, et alerte si plus rien n'arrive. */
@@ -262,6 +281,7 @@ export const Transcription: React.FC = () => {
   const enCours = occupe && !state!.stopping;
   const ecoute = enCours && state!.kind === "live" && !state!.paused;
   const niveau = useNiveau(ecoute);
+  const applications = useApplications(!!reglages && reglages.mode === "live" && !occupe && (capacites?.system_audio ?? false));
   const annonce = useAnnonce(state);
 
   // Raccourcis pendant une session : Espace = pause / reprise, Échap = arrêter (hors champs de saisie)
@@ -280,6 +300,8 @@ export const Transcription: React.FC = () => {
   const micChoisi = entrees.find((d) => d.name === r.input_device) ?? entrees[0];
   const avecMicro = r.source !== "system";
   const avecSysteme = r.source !== "microphone";
+  const avecApp = avecApplication(ecouteDe(r));
+  const appOuverte = !avecApp || (applications?.apps.some((a) => a.exe === r.app) ?? false);
   const diarisationEnCours = state?.diarization.status === "RUNNING";
   const diarisationDispo = capacites?.diarization ?? false;
 
@@ -288,7 +310,7 @@ export const Transcription: React.FC = () => {
   const moteurPret = r.engine === "mock" || ((modeleEquipe || modele?.valid === true) && capacites?.stt !== false);
   const sourcePrete = modeFichier
     ? !!choix && (capacites?.files ?? false)
-    : (!avecMicro || !!micChoisi) && (!avecSysteme || !!capacites?.system_audio);
+    : (!avecMicro || !!micChoisi) && (!avecSysteme || !!capacites?.system_audio) && appOuverte;
   const peutDemarrer = !occupe && !demarrage && !diarisationEnCours && sourcePrete && moteurPret;
 
   const changerMode = (m: Mode) => { setErreur(""); regler("mode", m); };
@@ -317,7 +339,7 @@ export const Transcription: React.FC = () => {
       if (modeFichier) { await transcrireFichier(); return; }
       await action("/api/session/start", {
         ...options(), source: r.source, input_device: avecMicro ? micChoisi?.index ?? null : null,
-        output_device: r.output_device || sorties[0]?.name || "", chunk_seconds: r.chunk_seconds,
+        output_device: r.output_device || sorties[0]?.name || "", app: avecApp ? r.app : "", chunk_seconds: r.chunk_seconds,
         overlap_seconds: Math.min(r.overlap_seconds, r.chunk_seconds - 0.5),
       });
     } catch (e) { if (!(e instanceof Error && e.message === "Envoi annulé.")) setErreur(messageErreur(e)); } finally { setDemarrage(false); }
@@ -351,7 +373,9 @@ export const Transcription: React.FC = () => {
       : r.engine === "local" && !moteurPret ? "Aucun modèle de transcription : voir « Transcription » dans les réglages."
       : modeFichier ? (capacites?.files === false ? "La lecture des fichiers n'est pas disponible ici." : "Choisissez d'abord un fichier.")
       : avecMicro && !micChoisi ? "Aucun microphone disponible."
-      : avecSysteme && !capacites?.system_audio ? "Le son du PC n'est pas disponible ici." : "")
+      : avecSysteme && !capacites?.system_audio ? "Le son du PC n'est pas disponible ici."
+      : !appOuverte ? (r.app ? `${r.app_name || "L'application choisie"} n'est pas ouvert : lancez-le, ou choisissez une autre source.` : "Choisissez l'application à écouter.")
+      : "")
     : "";
 
   const barre = (
@@ -410,7 +434,7 @@ export const Transcription: React.FC = () => {
       <div className="mt-6 grid items-start gap-6 lg:grid-cols-[360px_minmax(0,1fr)]">
         <aside aria-label="Réglages" className="order-2 lg:sticky lg:top-[76px] lg:order-none lg:max-h-[calc(100vh-6rem)] lg:overflow-y-auto lg:pr-1"
           tabIndex={occupe ? 0 : undefined}>
-          <SettingsPanel reglages={r} regler={regler} capacites={capacites} peripheriques={peripheriques} actualiser={actualiser}
+          <SettingsPanel reglages={r} regler={regler} capacites={capacites} peripheriques={peripheriques} applications={applications} actualiser={actualiser}
             modele={modele} pipeline={pipeline} cuda={cuda} equipe={equipe} occupe={occupe || demarrage}
             zoneFichier={<FilePicker choix={choix} choisir={setChoix} extensions={capacites?.file_extensions ?? []}
               disponible={capacites?.files ?? true} occupe={occupe || demarrage} />} />
@@ -422,8 +446,10 @@ export const Transcription: React.FC = () => {
           {state?.error && <Alerte>{state.error}</Alerte>}
           {ecoute && niveau.silence >= 10 && (
             <Alerte type="warning">
-              Aucun son reçu depuis {Math.round(niveau.silence)} s. Vérifiez que le bon {r.source === "system" ? "haut-parleur" : "microphone"} est
-              choisi dans les réglages et qu'il n'est pas coupé.
+              Aucun son reçu depuis {Math.round(niveau.silence)} s. {avecApp
+                ? <>Vérifiez que {r.app_name || "l'application"} fait bien du son (réunion lancée, son non coupé)
+                  {r.source === "mixed" ? " et que le bon microphone est choisi" : ""}.</>
+                : <>Vérifiez que le bon {r.source === "system" ? "haut-parleur" : "microphone"} est choisi dans les réglages et qu'il n'est pas coupé.</>}
             </Alerte>
           )}
 
