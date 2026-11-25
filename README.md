@@ -55,6 +55,11 @@ Prérequis : Python 3.11+ et Node.js 20+.
 
 Sans modèle de transcription, choisissez **Réglages avancés › Moteur › Simulation** pour tout essayer.
 
+**Identifier les intervenants** (optionnel, plus de 1 Go) : `install.bat intervenants`, puis, dans la section
+Intervenants, le dossier d'un pipeline pyannote déjà sur le disque (par exemple
+`speaker-diarization-community-1`, avec `config.yaml`, `embedding\`, `segmentation\` et `plda\`). L'app ne
+télécharge aucun modèle et n'a besoin d'aucun jeton.
+
 Le design system Night Navy est inclus dans le dépôt (`frontend/vendor/night-navy-1.2.1.tgz`) : npm n'a pas besoin
 d'accéder à GitHub, souvent bloqué sur le réseau de l'entreprise. Pour passer à une nouvelle version de Night Navy :
 `npm pack` dans le dépôt Design-system- à la bonne étiquette, remplacer le .tgz, mettre à jour `package.json`, puis
