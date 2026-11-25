@@ -56,8 +56,8 @@ Prérequis : Python 3.11+ et Node.js 20+.
 
 Sans modèle de transcription, choisissez **Réglages avancés › Moteur › Simulation** pour tout essayer.
 
-**Identifier les intervenants** (optionnel, plus de 1 Go) : `install.bat intervenants`, puis, dans la section
-Intervenants, le dossier d'un pipeline pyannote déjà sur le disque (par exemple
+**Identifier les intervenants** (optionnel, plus de 1 Go) : `install.bat intervenants`, puis, dans
+**Réglages avancés**, le dossier d'un pipeline pyannote déjà sur le disque (par exemple
 `speaker-diarization-community-1`, avec `config.yaml`, `embedding\`, `segmentation\` et `plda\`). L'app ne
 télécharge aucun modèle et n'a besoin d'aucun jeton.
 
