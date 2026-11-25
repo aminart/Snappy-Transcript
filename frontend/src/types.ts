@@ -120,8 +120,9 @@ export interface SessionState {
   default_title: string;
   started: string;
   marks: Marque[];
-  /** Le dernier « Tout remplacer » peut être annulé. */
+  /** La dernière correction ou le dernier « Tout remplacer » peut être annulé (Ctrl+Z). */
   can_undo: boolean;
+  undo_label: string;
 }
 
 /** Moment marqué : t en secondes ; label choisi, ou la phrase prononcée à ce moment (named = false). */
@@ -152,4 +153,7 @@ export interface SessionPassee {
   speakers: string[];
   unnamed: number;
   marks: number;
+  /** Place occupée par la session et par son audio (octets). */
+  size: number;
+  audio_size: number;
 }

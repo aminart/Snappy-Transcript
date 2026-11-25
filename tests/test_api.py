@@ -91,7 +91,6 @@ def test_erreurs_lisibles(client):
     r = client.post("/api/session/start", json={**DEMARRAGE, "source": "microphone", "input_device": None})
     assert r.status_code in (422,) or manager.current is not None
     assert client.post("/api/session/start", json={**DEMARRAGE, "chunk_seconds": 99}).status_code == 422
-    assert client.post("/api/posthoc", json={"wav_path": "/nulle/part.wav", "srt_path": "/nulle/part.srt"}).status_code == 422
 
 
 def test_diarisation_non_lancee_si_pipeline_invalide(client):
@@ -120,20 +119,6 @@ def test_diarisation_en_arriere_plan(client, monkeypatch):
     # relance manuelle
     assert client.post("/api/session/diarization", json={"model_path": "x", "speakers": 2}).status_code == 200
     attendre(lambda: client.get("/api/session").json()["diarization"]["status"] == "DONE")
-
-
-def test_reprise_apres_coup(client, monkeypatch, tmp_path):
-    wav, srt = tmp_path / "reunion.wav", tmp_path / "reunion.srt"
-    wav.write_bytes(b"RIFF")
-    srt.write_text("1\n00:00:00,000 --> 00:00:02,000\nBonjour\n", encoding="utf-8")
-    monkeypatch.setattr("snappy.service._validate_pipeline", lambda path: "pipeline-ok")
-    monkeypatch.setattr("snappy.service._diarize", lambda w, segs, m, n, job: [
-        TranscriptSegment(s.start, s.end, s.text, "SPEAKER_00") for s in segs])
-    r = client.post("/api/posthoc", json={"wav_path": f'"{wav}"', "srt_path": str(srt), "model_path": "x"})
-    assert r.status_code == 200
-    fin = attendre(lambda: (e := client.get("/api/posthoc").json())["status"] == "DONE" and e)
-    assert fin["segments"] == 1 and (tmp_path / "reunion_diarized.srt").is_file()
-    assert "SPEAKER_00" in client.get("/api/posthoc/file/txt").text
 
 
 def test_reglages_ne_gardent_que_les_valeurs_valides(client):
@@ -176,6 +161,9 @@ def test_modele_de_l_equipe_fourni_par_studio_dock(client, tmp_path, monkeypatch
     class Faux:
         def __init__(self, chemin, **_):
             choisi["chemin"] = chemin
+
+        def configure(self, vad_filter, glossary):
+            choisi["glossaire"] = glossary
     monkeypatch.setattr("snappy.transcription.whisper.LocalWhisperProvider", Faux)
     r = client.post("/api/session/start", json={**DEMARRAGE, "engine": "local", "model_path": ""})
     assert r.status_code == 200 and choisi["chemin"] == str(modele)

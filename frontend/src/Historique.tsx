@@ -1,9 +1,9 @@
 import React from "react";
 import { api, messageErreur } from "./api";
-import { Reprise } from "./components/DiarizationPanel";
 import { dateSession, dureeCourte } from "./components/ResultatPage";
+import { taille } from "./format";
 import { Alerte } from "./components/ui";
-import type { Capabilities, SessionPassee, Settings } from "./types";
+import type { SessionPassee } from "./types";
 
 type Filtre = "tout" | "live" | "file" | "intervenants";
 const FILTRES: { id: Filtre; label: string }[] = [
@@ -39,25 +39,25 @@ export const Historique: React.FC = () => {
   const [sessions, setSessions] = React.useState<SessionPassee[] | null>(null);
   const [q, setQ] = React.useState("");
   const [filtre, setFiltre] = React.useState<Filtre>("tout");
-  const [reglages, setReglages] = React.useState<Settings | null>(null);
-  const [capacites, setCapacites] = React.useState<Capabilities | null>(null);
   const [erreur, setErreur] = React.useState("");
   const [menu, setMenu] = React.useState<string | null>(null);
   const [aSupprimer, setASupprimer] = React.useState<string | null>(null);
   const [renomme, setRenomme] = React.useState<string | null>(null);
+  const [sansAudio, setSansAudio] = React.useState<string | null>(null);
+  const [place, setPlace] = React.useState<{ count: number; size: number; audio_size: number } | null>(null);
+  const [liberer, setLiberer] = React.useState(false);
+  const [jours, setJours] = React.useState(30);
+  const [avis, setAvis] = React.useState("");
 
   const charger = React.useCallback((recherche: string) => {
-    api<{ sessions: SessionPassee[] }>(`/api/history${recherche.trim() ? `?q=${encodeURIComponent(recherche.trim())}` : ""}`)
-      .then((r) => setSessions(r.sessions)).catch((e) => setErreur(messageErreur(e)));
+    api<{ sessions: SessionPassee[]; count: number; size: number; audio_size: number }>(`/api/history${recherche.trim() ? `?q=${encodeURIComponent(recherche.trim())}` : ""}`)
+      .then((r) => { setSessions(r.sessions); setPlace({ count: r.count, size: r.size, audio_size: r.audio_size }); })
+      .catch((e) => setErreur(messageErreur(e)));
   }, []);
   React.useEffect(() => {
     const t = setTimeout(() => charger(q), q ? 250 : 0);
     return () => clearTimeout(t);
   }, [q, charger]);
-  React.useEffect(() => {
-    api<Settings>("/api/settings").then(setReglages).catch(() => undefined);
-    api<Capabilities>("/api/capabilities").then(setCapacites).catch(() => undefined);
-  }, []);
   React.useEffect(() => {
     if (!menu) return;
     const fermer = (e: MouseEvent | KeyboardEvent) => {
@@ -83,6 +83,21 @@ export const Historique: React.FC = () => {
     setASupprimer(null);
     charger(q);
   });
+  const supprimerAudio = (id: string) => faire(async () => {
+    const r = await api<{ freed: number }>(`/api/history/${id}/audio`, { method: "DELETE" });
+    setSansAudio(null);
+    setAvis(`Audio supprimé : ${taille(r.freed)} libérés. Le texte est gardé.`);
+    charger(q);
+  });
+  const purger = () => faire(async () => {
+    const r = await api<{ freed: number; count: number }>("/api/history/purge-audio", { method: "POST", json: { days: jours } });
+    setLiberer(false);
+    setAvis(r.count ? `Audio supprimé pour ${r.count} transcription${r.count > 1 ? "s" : ""} : ${taille(r.freed)} libérés. Les textes sont gardés.` : "Aucun audio à supprimer pour cette période.");
+    charger(q);
+  });
+  const limite = Date.now() - jours * 86400000;
+  const aPurger = (sessions ?? []).filter((s) => !s.interrupted && s.audio && !s.current && new Date(s.started ?? dateDepuisId(s.id)).getTime() < limite);
+
   const renommer = (s: SessionPassee, titre: string) => faire(async () => {
     setRenomme(null);
     if (titre.trim() === (s.title || titreParDefaut(s))) return;
@@ -101,6 +116,42 @@ export const Historique: React.FC = () => {
           <p className="nn-page-subtitle">Vos transcriptions, enregistrées sur cet ordinateur.</p>
         </div>
       </div>
+      {place && place.count > 0 && (
+        <div className="-mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[13px] text-ink-muted">
+          <span>{place.count} transcription{place.count > 1 ? "s" : ""} · {taille(place.size)} sur ce poste{place.audio_size ? `, dont ${taille(place.audio_size)} d'audio` : ""}</span>
+          {place.audio_size > 0 && (
+            <button type="button" className="border-0 bg-transparent p-0 text-[13px] font-medium text-accent underline" aria-expanded={liberer}
+              aria-controls="liberer" onClick={() => setLiberer(!liberer)}>Libérer de la place…</button>
+          )}
+        </div>
+      )}
+      {liberer && (
+        <section id="liberer" aria-labelledby="liberer-titre" className="nn-card flex flex-col gap-3 px-5 py-4">
+          <h2 id="liberer-titre" className="m-0 text-[15px] font-bold text-ink">Libérer de la place</h2>
+          <p className="m-0 text-[13px] leading-snug text-ink-muted">
+            L'audio prend presque toute la place (environ 115 Mo par heure). En le supprimant, vous gardez le texte, les noms des intervenants,
+            les titres et les moments marqués ; vous ne pourrez plus réécouter la session ni relancer l'identification des intervenants.
+          </p>
+          <div className="flex flex-wrap items-center gap-3 text-sm">
+            <label htmlFor="jours" className="text-ink-body">Supprimer l'audio des transcriptions de plus de</label>
+            <select id="jours" className="nn-input h-9 w-auto" value={jours} onChange={(e) => setJours(Number(e.target.value))}>
+              {[7, 30, 90, 180, 365].map((j) => <option key={j} value={j}>{j < 365 ? `${j} jours` : "1 an"}</option>)}
+            </select>
+            <span className="text-ink-muted" role="status">
+              {aPurger.length ? `${aPurger.length} transcription${aPurger.length > 1 ? "s" : ""} · ${taille(aPurger.reduce((n, x) => n + x.audio_size, 0))} libérés` : "aucune transcription concernée"}
+            </span>
+          </div>
+          <div className="flex gap-2">
+            <button type="button" className="nn-btn nn-btn-primary" disabled={!aPurger.length} onClick={purger}>Supprimer l'audio</button>
+            <button type="button" className="nn-btn nn-btn-secondary" onClick={() => setLiberer(false)}>Annuler</button>
+          </div>
+        </section>
+      )}
+      {avis && (
+        <p role="status" className="m-0 flex items-center gap-3 rounded border border-line bg-surface-2 px-4 py-2.5 text-sm text-ink-body">
+          {avis}<button type="button" className="nn-icon-btn ml-auto h-7 w-7" aria-label="Fermer le message" onClick={() => setAvis("")}>×</button>
+        </p>
+      )}
 
       <div className="flex flex-wrap items-center gap-3">
         <label className="flex h-11 flex-[1_1_360px] items-center gap-2 rounded border border-line-strong bg-surface px-3 focus-within:border-accent focus-within:ring-1 focus-within:ring-accent">
@@ -166,7 +217,13 @@ export const Historique: React.FC = () => {
                     </div>
                   )}
                 </div>
-                {aSupprimer === s.id ? (
+                {sansAudio === s.id ? (
+                  <div className="flex max-w-[360px] flex-wrap items-center gap-2" role="group" aria-label="Confirmer la suppression de l'audio">
+                    <span className="text-[13px] text-ink-body">Supprimer l'audio ({taille(s.audio_size)}) ? Le texte est gardé, mais on ne pourra plus réécouter.</span>
+                    <button type="button" className="nn-btn nn-btn-secondary" onClick={() => supprimerAudio(s.id)}>Supprimer l'audio</button>
+                    <button type="button" className="nn-btn nn-btn-secondary" onClick={() => setSansAudio(null)}>Annuler</button>
+                  </div>
+                ) : aSupprimer === s.id ? (
                   <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Confirmer la suppression">
                     <span className="text-[13px] text-danger-text">Supprimer le texte et l'audio ?</span>
                     <button type="button" className="nn-btn nn-btn-secondary" onClick={() => supprimer(s.id)}>Supprimer</button>
@@ -182,9 +239,13 @@ export const Historique: React.FC = () => {
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="2" /><circle cx="12" cy="12" r="2" /><circle cx="19" cy="12" r="2" /></svg>
                       </button>
                       {menu === s.id && (
-                        <div role="menu" className="absolute right-0 top-11 z-20 w-[220px] rounded-md border border-line bg-surface p-1.5 shadow-lg">
+                        <div role="menu" className="absolute right-0 top-11 z-20 w-[260px] rounded-md border border-line bg-surface p-1.5 shadow-lg">
                           <button type="button" role="menuitem" autoFocus className="block w-full rounded border-0 bg-transparent px-2.5 py-2 text-left text-sm text-ink hover:bg-surface-3 focus:bg-surface-3 focus:outline-none"
                             onClick={() => { setMenu(null); dossier(s.id); }}>Ouvrir le dossier</button>
+                          {!s.interrupted && s.audio && (
+                            <button type="button" role="menuitem" className="block w-full rounded border-0 bg-transparent px-2.5 py-2 text-left text-sm text-ink hover:bg-surface-3 focus:bg-surface-3 focus:outline-none"
+                              onClick={() => { setMenu(null); setSansAudio(s.id); }}>Supprimer l'audio, garder le texte</button>
+                          )}
                           {!s.current && (
                             <button type="button" role="menuitem" className="block w-full rounded border-0 bg-transparent px-2.5 py-2 text-left text-sm text-danger-text hover:bg-surface-3 focus:bg-surface-3 focus:outline-none"
                               onClick={() => { setMenu(null); setASupprimer(s.id); }}>Supprimer…</button>
@@ -198,9 +259,6 @@ export const Historique: React.FC = () => {
             );
           })}
         </ul>
-      )}
-      {reglages && (
-        <Reprise cheminPipeline={reglages.diarization_model_path} locuteurs={reglages.speaker_hint} disponible={capacites?.diarization ?? false} />
       )}
     </div>
   );

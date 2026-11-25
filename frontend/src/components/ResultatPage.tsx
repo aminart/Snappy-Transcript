@@ -114,7 +114,9 @@ interface Props {
  */
 export const ResultatPage: React.FC<Props> = ({ etat, audio, rafraichir, ajouterAuGlossaire, panneauIntervenants, nouvelle }) => {
   const avecIntervenants = etat.diarization.status === "DONE";
-  const [variante, setVariante] = React.useState<Variante>(avecIntervenants ? "diarized" : "raw");
+  // Une seule version affichée : avec intervenants dès qu'ils sont identifiés (les corrections sont reportées dans
+  // le texte seul par le serveur, qui reste téléchargeable dans « Exporter »).
+  const variante: Variante = avecIntervenants ? "diarized" : "raw";
   const [segments, setSegments] = React.useState<Segment[]>([]);
   const [version, setVersion] = React.useState(0);
   const [erreur, setErreur] = React.useState("");
@@ -138,7 +140,6 @@ export const ResultatPage: React.FC<Props> = ({ etat, audio, rafraichir, ajouter
   const champRecherche = React.useRef<HTMLInputElement>(null);
   const boutonMenu = React.useRef<HTMLButtonElement>(null);
 
-  React.useEffect(() => { if (avecIntervenants) setVariante("diarized"); }, [avecIntervenants]);
   React.useEffect(() => {
     let annule = false;
     api<{ segments: Segment[] }>(`/api/session/transcript?variant=${variante}`)
@@ -189,23 +190,27 @@ export const ResultatPage: React.FC<Props> = ({ etat, audio, rafraichir, ajouter
     requestAnimationFrame(() => { champRecherche.current?.focus(); champRecherche.current?.select(); });
   }, []);
 
-  const annulerRemplacement = React.useCallback(async () => {
-    try { await api("/api/session/replace/undo", { method: "POST" }); setAvis({ texte: "Remplacement annulé." }); setVersion((v) => v + 1); rafraichir(); }
-    catch (e) { setErreur(messageErreur(e)); }
+  const annuler = React.useCallback(async () => {
+    try {
+      const r = await api<{ undone: string }>("/api/session/undo", { method: "POST" });
+      setAvis({ texte: `${r.undone.charAt(0).toUpperCase()}${r.undone.slice(1)} est annulé${r.undone.startsWith("la") ? "e" : ""}.` });
+      setVersion((v) => v + 1);
+      rafraichir();
+    } catch (e) { setErreur(messageErreur(e)); }
   }, [rafraichir]);
 
-  // Raccourcis : Ctrl+F rechercher, Ctrl+H remplacer, Ctrl+Z annuler le dernier « Tout remplacer »
+  // Raccourcis : Ctrl+F rechercher, Ctrl+H remplacer, Ctrl+Z annuler la dernière correction ou le dernier remplacement
   React.useEffect(() => {
     const touche = (e: KeyboardEvent) => {
       if (!(e.ctrlKey || e.metaKey)) return;
       const k = e.key.toLowerCase();
       if (k === "f" || k === "h") { e.preventDefault(); ouvrirRecherche(); }
       const cible = e.target as HTMLElement | null;
-      if (k === "z" && etat.can_undo && !(cible && /^(INPUT|TEXTAREA)$/.test(cible.tagName))) { e.preventDefault(); annulerRemplacement(); }
+      if (k === "z" && etat.can_undo && !(cible && /^(INPUT|TEXTAREA)$/.test(cible.tagName))) { e.preventDefault(); annuler(); }
     };
     window.addEventListener("keydown", touche);
     return () => window.removeEventListener("keydown", touche);
-  }, [ouvrirRecherche, annulerRemplacement, etat.can_undo]);
+  }, [ouvrirRecherche, annuler, etat.can_undo]);
 
   const corriger = React.useCallback(async (index: number, texte: string) => {
     setEdition(null);
@@ -214,8 +219,10 @@ export const ResultatPage: React.FC<Props> = ({ etat, audio, rafraichir, ajouter
       const s = await api<Segment>("/api/session/segment", { method: "PUT", json: { variant: variante, index, text: texte } });
       setSegments((avant) => avant.map((x, i) => (i === index ? s : x)));
       setErreur("");
+      setAvis({ texte: "Phrase corrigée, dans l'app et dans les fichiers.", annuler: true });
+      rafraichir();
     } catch (e) { setErreur(messageErreur(e)); }
-  }, [segments, variante]);
+  }, [segments, variante, rafraichir]);
 
   const remplacerUne = async () => {
     if (!actuelle) return;
@@ -397,14 +404,14 @@ export const ResultatPage: React.FC<Props> = ({ etat, audio, rafraichir, ajouter
             <label className="nn-check text-[13px]"><input type="checkbox" checked={motEntier} onChange={(e) => setMotEntier(e.target.checked)} /> <span>Mot entier</span></label>
             <label className="nn-check text-[13px]"><input type="checkbox" checked={glossaire} onChange={(e) => setGlossaire(e.target.checked)} />
               <span>Ajouter {par.trim() ? `« ${par.trim()} »` : "le nouveau mot"} aux mots à bien reconnaître (prochaines sessions)</span></label>
-            <span className="ml-auto text-ink-subtle">Les noms des intervenants ne sont pas modifiés · Ctrl+Z annule « Tout remplacer »</span>
+            <span className="ml-auto text-ink-subtle">Les noms des intervenants ne sont pas modifiés · Ctrl+Z annule</span>
           </div>
         </div>
       )}
       {avis && (
         <p role="status" className="m-0 flex flex-wrap items-center gap-3 rounded border border-line bg-surface-2 px-4 py-2.5 text-sm text-ink-body">
           {avis.texte}
-          {avis.annuler && etat.can_undo && <button type="button" className="border-0 bg-transparent p-0 text-sm font-medium text-accent underline" onClick={annulerRemplacement}>Annuler</button>}
+          {avis.annuler && etat.can_undo && <button type="button" className="border-0 bg-transparent p-0 text-sm font-medium text-accent underline" onClick={annuler}>Annuler</button>}
           <button type="button" className="nn-icon-btn ml-auto h-7 w-7" aria-label="Fermer le message" onClick={() => setAvis(null)}>×</button>
         </p>
       )}
@@ -412,14 +419,6 @@ export const ResultatPage: React.FC<Props> = ({ etat, audio, rafraichir, ajouter
 
       <div className="flex flex-wrap items-start gap-6">
         <article className="nn-card min-w-0 flex-[999_1_560px] px-5 pb-4 pt-2 sm:px-7" aria-label="Transcription">
-          {avecIntervenants && (
-            <div className="flex items-center justify-between gap-3 border-b border-line py-3">
-              <div className="nn-segmented" role="group" aria-label="Texte affiché">
-                <button type="button" aria-pressed={variante === "diarized"} onClick={() => setVariante("diarized")}>Avec intervenants</button>
-                <button type="button" aria-pressed={variante === "raw"} onClick={() => setVariante("raw")}>Texte seul</button>
-              </div>
-            </div>
-          )}
           {segments.length === 0 && !erreur && <p className="m-3 text-sm text-ink-muted">Aucune parole détectée.</p>}
           {segments.map((s, i) => {
             const info = variante === "diarized" ? infoDe(s) : undefined;
@@ -492,7 +491,6 @@ export const ResultatPage: React.FC<Props> = ({ etat, audio, rafraichir, ajouter
                   <span className="h-3 w-3 rounded-full" style={{ background: TEINTES[i % TEINTES.length] }} aria-hidden="true" />
                   <div>
                     <button type="button" className="border-0 bg-transparent p-0 text-left text-sm text-ink hover:underline" onClick={() => {
-                      setVariante("diarized");
                       const ligne = segments.findIndex((s) => parEtiquette.get(s.speaker ?? "")?.label === x.label);
                       if (ligne >= 0) { setRenomme({ label: x.label, ligne }); lignes.current.get(ligne)?.scrollIntoView({ block: "center", behavior: "smooth" }); }
                     }}>
@@ -542,7 +540,7 @@ const ZoneCorrection: React.FC<{ texte: string; enregistrer: (t: string) => void
           if (e.key === "Escape") { e.preventDefault(); annuler(); }
           if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); enregistrer(v); }
         }} />
-      <span id="aide-correction" className="text-[12px] text-ink-subtle">Entrée : enregistrer (dans l'app et les fichiers) · Échap : annuler</span>
+      <span id="aide-correction" className="text-[12px] text-ink-subtle">Entrée : enregistrer · Échap : laisser comme avant · Ctrl+Z ensuite : annuler la correction</span>
     </div>
   );
 };

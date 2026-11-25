@@ -29,7 +29,6 @@ from .file_session import FileTranscription
 from .models import TranscriptSegment
 from .paths import app_data_dir
 from .session import LiveSession
-from .srt import parse_srt
 from .transcription.mock import MockProvider
 
 log = logging.getLogger(__name__)
@@ -139,7 +138,7 @@ class ActiveSession:
         self.speaker_names: dict[str, str] = {}       # « SPEAKER_00 » → « Marie », repris dans les exports
         self.title = ""                               # titre donné par la personne (« Comité projet – budget »)
         self.marks: list[dict[str, Any]] = []         # moments marqués : {"t": secondes, "label": texte choisi ou ""}
-        self._avant_remplacement: tuple | None = None # pour annuler le dernier « Tout remplacer »
+        self._annulables: list[tuple[str, list, list | None]] = []  # (quoi, texte seul, avec intervenants) avant chaque modification
         self._onde: tuple[float, list[float], float] | None = None
         self.started = time.strftime("%Y-%m-%dT%H:%M:%S")
         self._exports_done = threading.Event()
@@ -220,8 +219,39 @@ class ActiveSession:
             return self.diarized_segments
         return self.raw_segments or []
 
+    def _memoriser(self, quoi: str) -> None:
+        """Garde l'état du texte avant une modification, pour Ctrl+Z (20 étapes)."""
+        self._annulables.append((quoi, list(self.raw_segments or []),
+                                 list(self.diarized_segments) if self.diarized_segments is not None else None))
+        del self._annulables[:-20]
+
+    def undo(self) -> str:
+        """Annule la dernière correction ou le dernier « Tout remplacer » ; renvoie ce qui a été annulé."""
+        with self._lock:
+            if not self._annulables:
+                raise ServiceError("Rien à annuler.", 409)
+            if self.diar.running:
+                raise ServiceError("Attendez la fin de l'identification des intervenants.", 409)
+            quoi, self.raw_segments, self.diarized_segments = self._annulables.pop()
+            self.save()
+            return quoi
+
+    @staticmethod
+    def _phrase_d_origine(raw: list[TranscriptSegment], d: TranscriptSegment) -> int:
+        """Index de la phrase du texte seul dont vient une réplique (le plus grand recouvrement dans le temps)."""
+        meilleur, recouvrement = -1, -1.0
+        for i, r in enumerate(raw):
+            if r.start > d.end + 0.01:
+                break
+            ov = min(r.end, d.end) - max(r.start, d.start)
+            if ov > recouvrement:
+                meilleur, recouvrement = i, ov
+        return meilleur
+
     def edit_segment(self, variant: str, index: int, text: str) -> dict[str, Any]:
-        """Corrige le texte d'une phrase ; l'horodatage mot à mot de cette phrase est abandonné."""
+        """Corrige le texte d'une phrase ; l'horodatage mot à mot de cette phrase est abandonné.
+        La correction est reportée dans l'autre version du texte : une réplique corrigée refait la phrase du texte
+        seul dont elle vient ; une phrase du texte seul n'est reportée que si elle n'a donné qu'une réplique."""
         from dataclasses import replace
         text = " ".join((text or "").split())
         if not text:
@@ -231,7 +261,18 @@ class ActiveSession:
             if not 0 <= index < len(segments):
                 raise ServiceError("Cette phrase n'existe plus : rechargez la page.", 404)
             if segments[index].text != text:
+                self._memoriser("la correction")
                 segments[index] = replace(segments[index], text=text, words=())
+                raw, diar = self.raw_segments or [], self.diarized_segments
+                if variant == "diarized" and raw:
+                    i = self._phrase_d_origine(raw, segments[index])
+                    if i >= 0:
+                        morceaux = [d.text for d in diar if self._phrase_d_origine(raw, d) == i]
+                        raw[i] = replace(raw[i], text=" ".join(morceaux), words=())
+                elif variant == "raw" and diar:
+                    issues = [k for k, d in enumerate(diar) if self._phrase_d_origine(raw, d) == index]
+                    if len(issues) == 1:
+                        diar[issues[0]] = replace(diar[issues[0]], text=text, words=())
                 self.save()
             return segment_to_dict(self.named([segments[index]])[0], words=True)
 
@@ -322,17 +363,10 @@ class ActiveSession:
                 self.diarized_segments, n = appliquer(self.diarized_segments)
                 total = max(total, n)
             if total:
-                self._avant_remplacement = avant
+                self._annulables.append(("le remplacement", *avant))
+                del self._annulables[:-20]
                 self.save()
             return total
-
-    def undo_replace(self) -> None:
-        with self._lock:
-            if not self._avant_remplacement:
-                raise ServiceError("Rien à annuler.", 409)
-            self.raw_segments, self.diarized_segments = self._avant_remplacement
-            self._avant_remplacement = None
-            self.save()
 
     def docx(self) -> tuple[bytes, str]:
         from .documents import segments_to_docx
@@ -451,7 +485,8 @@ class ActiveSession:
             "speakers": self.speakers() if self.finished else [],
             "archived": isinstance(live, ArchivedLive),
             "title": self.title, "default_title": self.default_title(), "started": self.started,
-            "marks": self.marks_view(), "can_undo": self._avant_remplacement is not None,
+            "marks": self.marks_view(), "can_undo": bool(self._annulables),
+            "undo_label": self._annulables[-1][0] if self._annulables else "",
         }
 
     def transcript(self, variant: str) -> list[dict[str, Any]]:
@@ -526,18 +561,6 @@ def open_folder(path: Path) -> None:
         subprocess.Popen(["xdg-open", str(path)])
 
 
-# --- Reprise après coup (WAV + SRT déjà sur le disque) ------------------------------------------------------
-
-class PosthocJob(DiarizationJob):
-    def __init__(self) -> None:
-        super().__init__()
-        self.outputs: dict[str, Path] = {}
-        self.segments = 0
-
-    def as_dict(self) -> dict[str, Any]:
-        return {**super().as_dict(), "segments": self.segments, "outputs": {k: str(v) for k, v in self.outputs.items()}}
-
-
 def _clean_path(raw: str) -> Path:
     return Path((raw or "").strip().strip('"')).expanduser()
 
@@ -587,13 +610,67 @@ def upload_name(upload_id: str) -> str:
         return upload_id
 
 
+# --- Modèle de transcription gardé en mémoire ---------------------------------------------------------------
+
+class ModeleCharge:
+    """Un seul modèle Whisper en mémoire, chargé à l'avance et réutilisé d'une session à l'autre.
+    La clé (dossier, accélération) change : l'ancien modèle est libéré et le nouveau chargé."""
+
+    def __init__(self) -> None:
+        self.cle: tuple[str, str] | None = None
+        self.provider: Any = None
+        self.etat, self.message = "idle", ""
+        self._thread: threading.Thread | None = None
+        self._lock = threading.Lock()
+
+    def charger(self, cle: tuple[str, str]) -> None:
+        with self._lock:
+            if self.cle == cle and self.etat in ("loading", "ready"):
+                return
+            self.cle, self.provider, self.etat, self.message = cle, None, "loading", ""
+            self._thread = threading.Thread(target=self._charger, args=(cle,), name="prechargement-modele", daemon=True)
+            self._thread.start()
+
+    def _charger(self, cle: tuple[str, str]) -> None:
+        from .transcription.whisper import LocalWhisperProvider
+        try:
+            provider = LocalWhisperProvider(cle[0], acceleration=cle[1])
+            erreur = ""
+        except Exception as exc:
+            provider, erreur = None, str(exc)
+            log.warning("Préchargement du modèle : %s", exc)
+        with self._lock:
+            if self.cle != cle:  # réglages changés entre-temps : ce chargement ne sert plus
+                return
+            self.provider, self.etat, self.message = provider, ("ready" if provider else "error"), erreur
+
+    def obtenir(self, cle: tuple[str, str]) -> Any:
+        """Le modèle préchargé (en attendant la fin de son chargement), ou un nouveau chargé maintenant."""
+        self.charger(cle)
+        t = self._thread
+        if t:
+            t.join()
+        with self._lock:
+            if self.cle == cle and self.provider is not None:
+                return self.provider
+            message = self.message or "Le modèle n'a pas pu être chargé."
+            self.cle, self.etat = None, "idle"  # le prochain essai recharge
+        raise RuntimeError(message)
+
+    def as_dict(self) -> dict[str, Any]:
+        p = self.provider
+        return {"state": self.etat, "message": self.message,
+                "device": f"{getattr(p, 'device', '?').upper()} · {getattr(p, 'compute_type', '?')}" if p else ""}
+
+
 # --- Gestionnaire --------------------------------------------------------------------------------------------
 
 class Manager:
     def __init__(self) -> None:
         self.current: ActiveSession | None = None
-        self.posthoc = PosthocJob()
         self.preview = Apercu()
+        self.modele = ModeleCharge()
+        self._index: dict[str, tuple] = {}   # « Mes transcriptions » : fiche et texte de chaque session, par empreinte
         self._lock = threading.RLock()
 
     # -- sessions ------------------------------------------------------------------------------------------------
@@ -606,25 +683,38 @@ class Manager:
             stamp = f"{base}-{n}"
         return stamp
 
-    def _provider(self, p: StartParams):
-        if p.engine == "mock":
-            return MockProvider()
-        from .transcription.whisper import LocalWhisperProvider, validate_ctranslate2_model
-
-        if not p.model_path.strip():  # pas de dossier choisi sur ce poste : le modèle de l'équipe
+    @staticmethod
+    def _chemin_modele(model_path: str) -> str:
+        """Dossier du modèle : celui choisi sur ce poste, sinon celui de l'équipe (Studio Dock) ; vérifié."""
+        from .transcription.whisper import validate_ctranslate2_model
+        if not model_path.strip():
             equipe = team_model()
             if equipe is None:
                 raise ServiceError("Aucun modèle de transcription : Studio Dock n'en a pas installé sur ce poste "
                                    "(Réglages › Modèles d'IA), et aucun dossier n'est indiqué ici.", 422)
-            p.model_path = equipe.path
-        check = validate_ctranslate2_model(p.model_path)
+            model_path = equipe.path
+        check = validate_ctranslate2_model(model_path)
         if not check.valid:
             detail = f" Manquants : {', '.join(check.missing)}." if check.missing else ""
             raise ServiceError(check.message + detail, 422)
+        return str(check.path)
+
+    def preload(self, model_path: str, acceleration: str) -> dict[str, Any]:
+        """Charge le modèle en arrière-plan dès l'ouverture de la page : « Démarrer » part ensuite tout de suite."""
+        chemin = self._chemin_modele(model_path)
+        self.modele.charger((chemin, acceleration))
+        return self.modele.as_dict()
+
+    def _provider(self, p: StartParams):
+        if p.engine == "mock":
+            return MockProvider()
+        p.model_path = self._chemin_modele(p.model_path)
         try:
-            return LocalWhisperProvider(p.model_path, vad_filter=p.vad_filter, acceleration=p.acceleration, glossary=p.glossary)
+            provider = self.modele.obtenir((p.model_path, p.acceleration))
         except (ValueError, RuntimeError) as exc:
             raise ServiceError(str(exc), 422) from exc
+        provider.configure(p.vad_filter, p.glossary)
+        return provider
 
     def _sources(self, p: StartParams) -> dict[str, Any]:
         """Les sources séparées : « voix » (micro) et / ou « autre » (application ou tout le son du PC)."""
@@ -776,56 +866,122 @@ class Manager:
 
     # -- historique ------------------------------------------------------------------------------------------------
 
+    def _fiche_indexee(self, d: Path) -> tuple[dict[str, Any], str] | None:
+        """Fiche d'une session pour « Mes transcriptions » et son texte complet, relus seulement s'ils ont changé :
+        la liste et la recherche restent rapides avec des centaines de sessions."""
+        from .documents import duree_wav
+        wav = d / f"recording_{d.name}.wav"
+        copie = app_data_dir() / "cache" / f"transcript_{d.name}.txt"
+        fichiers = (d / SESSION_FILE, d / "transcript_raw.json", d / "transcript_diarized.json", wav, copie)
+
+        def empreinte(f: Path) -> tuple[float, int] | None:
+            try:
+                st = f.stat()
+                return st.st_mtime, st.st_size
+            except OSError:
+                return None
+        signature = tuple(empreinte(f) for f in fichiers)
+        cache = self._index.get(d.name)
+        if cache and cache[0] == signature:
+            return cache[1], cache[2]
+
+        taille_audio = signature[3][1] if signature[3] else 0
+        taille = 0
+        for f in d.iterdir():
+            try:
+                taille += f.stat().st_size
+            except OSError:
+                pass
+        try:
+            fiche = json.loads((d / SESSION_FILE).read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            fiche = None
+        if fiche is None:
+            if not wav.is_file() and not copie.is_file():
+                return None
+            texte = copie.read_text(encoding="utf-8", errors="replace") if copie.is_file() else ""
+            texte = " ".join(re.sub(r"\[\d+:\d\d:\d\d\]\s?", " ", texte).split())
+            base = {"id": d.name, "interrupted": True, "kind": "live", "name": None, "title": "",
+                    "duration": duree_wav(wav) if wav.is_file() else None, "segments": None,
+                    "diarized": False, "audio": wav.is_file(), "recoverable": copie.is_file(),
+                    "speakers": [], "unnamed": 0, "marks": 0, "size": taille, "audio_size": taille_audio}
+        else:
+            raw = _lire_segments(d / "transcript_raw.json") or []
+            diar = _lire_segments(d / "transcript_diarized.json")
+            texte = " ".join(x.text for x in raw)
+            noms = {str(k): str(v) for k, v in (fiche.get("speaker_names") or {}).items()}
+            etiquettes = sorted({x.speaker for x in diar or [] if x.speaker})
+            base = {"id": d.name, "interrupted": False, "kind": fiche.get("kind"), "name": fiche.get("name"),
+                    "title": str(fiche.get("title") or ""), "started": fiche.get("started"), "duration": fiche.get("duration"),
+                    "segments": fiche.get("segments"), "diarized": bool(fiche.get("diarized")),
+                    "audio": wav.is_file(), "error": fiche.get("error") or "",
+                    "speakers": [noms[e] for e in etiquettes if e in noms],
+                    "unnamed": sum(1 for e in etiquettes if e not in noms),
+                    "marks": len(fiche.get("marks") or []), "size": taille, "audio_size": taille_audio}
+        self._index[d.name] = (signature, base, texte)
+        return base, texte
+
     def history(self, q: str = "") -> list[dict[str, Any]]:
         """Sessions enregistrées, de la plus récente à la plus ancienne. Une session sans fiche (application fermée
         pendant l'enregistrement) apparaît comme interrompue : son WAV et sa copie de récupération restent.
         Avec q : seulement celles dont le texte ou le titre contient q (accents et majuscules ignorés), avec l'extrait."""
-        from .documents import compter, duree_wav, extrait
+        from .documents import compter, extrait
         courant = self.current.stamp if self.current else None
-        sorties = []
         try:
             dossiers = sorted((d for d in sessions_dir().iterdir() if d.is_dir()), key=lambda d: d.name, reverse=True)
         except OSError:
             return []
+        presents = {d.name for d in dossiers}
+        for ancien in set(self._index) - presents:
+            self._index.pop(ancien, None)
+        sorties = []
         for d in dossiers:
-            try:
-                fiche = json.loads((d / SESSION_FILE).read_text(encoding="utf-8"))
-            except (OSError, ValueError):
-                fiche = None
-            if d.name == courant and (fiche is None or not self.current.finished):
+            lu = self._fiche_indexee(d)
+            if lu is None:
+                continue
+            base, texte = lu
+            if d.name == courant and (base["interrupted"] or not self.current.finished):
                 continue  # session en cours : elle est sur la page principale
-            wav = d / f"recording_{d.name}.wav"
-            if fiche is None:
-                copie = app_data_dir() / "cache" / f"transcript_{d.name}.txt"
-                if not wav.is_file() and not copie.is_file():
-                    continue
-                texte = copie.read_text(encoding="utf-8", errors="replace") if copie.is_file() else ""
-                ex = extrait(re.sub(r"\[\d+:\d\d:\d\d\]\s?", " ", texte), q)
-                if q and ex is None:
-                    continue
-                sorties.append({"id": d.name, "interrupted": True, "kind": "live", "name": None, "title": "",
-                                "duration": duree_wav(wav) if wav.is_file() else None, "segments": None,
-                                "diarized": False, "audio": wav.is_file(), "current": False, "recoverable": copie.is_file(),
-                                "excerpt": ex, "matches": compter(texte, q), "speakers": [], "unnamed": 0, "marks": 0})
-                continue
-            raw = _lire_segments(d / "transcript_raw.json") or []
-            diar = _lire_segments(d / "transcript_diarized.json")
-            texte = " ".join(x.text for x in raw)
-            titre = str(fiche.get("title") or "")
             ex = extrait(texte, q)
-            if q and ex is None and compter(titre, q) == 0:
+            n = compter(texte, q) + compter(base["title"], q)
+            if q and not n:
                 continue
-            noms = {str(k): str(v) for k, v in (fiche.get("speaker_names") or {}).items()}
-            etiquettes = sorted({x.speaker for x in diar or [] if x.speaker})
-            sorties.append({"id": d.name, "interrupted": False, "kind": fiche.get("kind"), "name": fiche.get("name"),
-                            "title": titre, "started": fiche.get("started"), "duration": fiche.get("duration"),
-                            "segments": fiche.get("segments"), "diarized": bool(fiche.get("diarized")),
-                            "audio": wav.is_file(), "error": fiche.get("error") or "", "current": d.name == courant,
-                            "excerpt": ex or extrait(texte), "matches": compter(texte, q) + compter(titre, q),
-                            "speakers": [noms[e] for e in etiquettes if e in noms],
-                            "unnamed": sum(1 for e in etiquettes if e not in noms),
-                            "marks": len(fiche.get("marks") or [])})
+            sorties.append({**base, "current": d.name == courant, "excerpt": ex or extrait(texte), "matches": n})
         return sorties
+
+    def delete_audio(self, session_id: str) -> int:
+        """Supprime l'enregistrement audio d'une session et garde son texte ; renvoie la place libérée (octets)."""
+        with self._lock:
+            if self.current and self.current.stamp == session_id and (not self.current.finished or self.current.diar.running):
+                raise ServiceError("Cette session est en cours.", 409)
+            d = self._session_dir(session_id)
+            if not (d / SESSION_FILE).is_file():
+                raise ServiceError("Récupérez d'abord le texte de cette session : son audio est sa seule sauvegarde.", 409)
+            wav = d / f"recording_{session_id}.wav"
+            try:
+                taille = wav.stat().st_size
+            except OSError:
+                return 0
+            wav.unlink(missing_ok=True)
+            if self.current and self.current.stamp == session_id:
+                self.current._onde = None
+            return taille
+
+    def purge_audio(self, days: int) -> dict[str, int]:
+        """Supprime l'audio des sessions de plus de `days` jours (le texte, les noms et les titres restent)."""
+        limite = datetime.now().timestamp() - days * 86400
+        liberes, nombre = 0, 0
+        for s in self.history():
+            if s["interrupted"] or not s["audio"] or s["current"]:
+                continue
+            try:
+                debut = datetime.strptime(s["id"][:19], "%Y-%m-%d_%H-%M-%S").timestamp()
+            except ValueError:
+                continue
+            if debut < limite:
+                liberes += self.delete_audio(s["id"])
+                nombre += 1
+        return {"freed": liberes, "count": nombre}
 
     def set_history_title(self, session_id: str, title: str) -> dict[str, Any]:
         """Renomme une session depuis « Mes transcriptions » (ou la session ouverte, si c'est elle)."""
@@ -941,42 +1097,6 @@ class Manager:
                 s.live.stop()
             except Exception:
                 log.exception("Arrêt de la session à la fermeture")
-
-    # -- reprise après coup ---------------------------------------------------------------------------------------
-
-    def start_posthoc(self, wav: str, srt: str, model_path: str, speakers: int) -> dict[str, Any]:
-        with self._lock:
-            if self.posthoc.running:
-                raise ServiceError("Une reprise est déjà en cours.", 409)
-            wav_path, srt_path = _clean_path(wav), _clean_path(srt)
-            if not wav_path.is_file():
-                raise ServiceError(f"WAV introuvable : {wav_path}", 422)
-            if not srt_path.is_file():
-                raise ServiceError(f"SRT introuvable : {srt_path}", 422)
-            model = _validate_pipeline(model_path)
-            try:
-                original = parse_srt(srt_path.read_text(encoding="utf-8-sig"))
-            except (ValueError, UnicodeDecodeError) as exc:
-                raise ServiceError(f"SRT illisible : {exc}", 422) from exc
-            job = self.posthoc = PosthocJob()
-            job.status, job.phase = "RUNNING", "préparation"
-            job.thread = threading.Thread(target=self._posthoc_worker, args=(job, wav_path, original, model, speakers),
-                                          name="posthoc-diarization", daemon=True)
-            job.thread.start()
-            return job.as_dict()
-
-    @staticmethod
-    def _posthoc_worker(job: PosthocJob, wav: Path, original: list[TranscriptSegment], model: str, speakers: int) -> None:
-        try:
-            labelled = _diarize(wav, original, model, speakers, job)
-            txt, srt = wav.with_name(wav.stem + "_diarized.txt"), wav.with_name(wav.stem + "_diarized.srt")
-            txt.write_text(segments_to_txt(labelled), encoding="utf-8")
-            srt.write_text(segments_to_srt(labelled), encoding="utf-8")
-            job.outputs, job.segments = {"txt": txt, "srt": srt}, len(labelled)
-            job.status = "DONE"
-        except Exception as exc:
-            log.exception("Diarisation après coup")
-            job.status, job.error = "ERROR", f"{type(exc).__name__}: {exc}"
 
 
 def team_model():
