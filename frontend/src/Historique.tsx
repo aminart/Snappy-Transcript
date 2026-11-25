@@ -1,9 +1,8 @@
 import React from "react";
 import { api, messageErreur } from "./api";
-import { Reprise } from "./components/DiarizationPanel";
 import { dateSession, dureeCourte } from "./components/ResultatPage";
 import { Alerte } from "./components/ui";
-import type { Capabilities, SessionPassee, Settings } from "./types";
+import type { SessionPassee } from "./types";
 
 type Filtre = "tout" | "live" | "file" | "intervenants";
 const FILTRES: { id: Filtre; label: string }[] = [
@@ -39,8 +38,6 @@ export const Historique: React.FC = () => {
   const [sessions, setSessions] = React.useState<SessionPassee[] | null>(null);
   const [q, setQ] = React.useState("");
   const [filtre, setFiltre] = React.useState<Filtre>("tout");
-  const [reglages, setReglages] = React.useState<Settings | null>(null);
-  const [capacites, setCapacites] = React.useState<Capabilities | null>(null);
   const [erreur, setErreur] = React.useState("");
   const [menu, setMenu] = React.useState<string | null>(null);
   const [aSupprimer, setASupprimer] = React.useState<string | null>(null);
@@ -54,10 +51,6 @@ export const Historique: React.FC = () => {
     const t = setTimeout(() => charger(q), q ? 250 : 0);
     return () => clearTimeout(t);
   }, [q, charger]);
-  React.useEffect(() => {
-    api<Settings>("/api/settings").then(setReglages).catch(() => undefined);
-    api<Capabilities>("/api/capabilities").then(setCapacites).catch(() => undefined);
-  }, []);
   React.useEffect(() => {
     if (!menu) return;
     const fermer = (e: MouseEvent | KeyboardEvent) => {
@@ -198,9 +191,6 @@ export const Historique: React.FC = () => {
             );
           })}
         </ul>
-      )}
-      {reglages && (
-        <Reprise cheminPipeline={reglages.diarization_model_path} locuteurs={reglages.speaker_hint} disponible={capacites?.diarization ?? false} />
       )}
     </div>
   );

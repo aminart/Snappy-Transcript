@@ -29,7 +29,6 @@ from .file_session import FileTranscription
 from .models import TranscriptSegment
 from .paths import app_data_dir
 from .session import LiveSession
-from .srt import parse_srt
 from .transcription.mock import MockProvider
 
 log = logging.getLogger(__name__)
@@ -526,18 +525,6 @@ def open_folder(path: Path) -> None:
         subprocess.Popen(["xdg-open", str(path)])
 
 
-# --- Reprise après coup (WAV + SRT déjà sur le disque) ------------------------------------------------------
-
-class PosthocJob(DiarizationJob):
-    def __init__(self) -> None:
-        super().__init__()
-        self.outputs: dict[str, Path] = {}
-        self.segments = 0
-
-    def as_dict(self) -> dict[str, Any]:
-        return {**super().as_dict(), "segments": self.segments, "outputs": {k: str(v) for k, v in self.outputs.items()}}
-
-
 def _clean_path(raw: str) -> Path:
     return Path((raw or "").strip().strip('"')).expanduser()
 
@@ -592,7 +579,6 @@ def upload_name(upload_id: str) -> str:
 class Manager:
     def __init__(self) -> None:
         self.current: ActiveSession | None = None
-        self.posthoc = PosthocJob()
         self.preview = Apercu()
         self._lock = threading.RLock()
 
@@ -941,42 +927,6 @@ class Manager:
                 s.live.stop()
             except Exception:
                 log.exception("Arrêt de la session à la fermeture")
-
-    # -- reprise après coup ---------------------------------------------------------------------------------------
-
-    def start_posthoc(self, wav: str, srt: str, model_path: str, speakers: int) -> dict[str, Any]:
-        with self._lock:
-            if self.posthoc.running:
-                raise ServiceError("Une reprise est déjà en cours.", 409)
-            wav_path, srt_path = _clean_path(wav), _clean_path(srt)
-            if not wav_path.is_file():
-                raise ServiceError(f"WAV introuvable : {wav_path}", 422)
-            if not srt_path.is_file():
-                raise ServiceError(f"SRT introuvable : {srt_path}", 422)
-            model = _validate_pipeline(model_path)
-            try:
-                original = parse_srt(srt_path.read_text(encoding="utf-8-sig"))
-            except (ValueError, UnicodeDecodeError) as exc:
-                raise ServiceError(f"SRT illisible : {exc}", 422) from exc
-            job = self.posthoc = PosthocJob()
-            job.status, job.phase = "RUNNING", "préparation"
-            job.thread = threading.Thread(target=self._posthoc_worker, args=(job, wav_path, original, model, speakers),
-                                          name="posthoc-diarization", daemon=True)
-            job.thread.start()
-            return job.as_dict()
-
-    @staticmethod
-    def _posthoc_worker(job: PosthocJob, wav: Path, original: list[TranscriptSegment], model: str, speakers: int) -> None:
-        try:
-            labelled = _diarize(wav, original, model, speakers, job)
-            txt, srt = wav.with_name(wav.stem + "_diarized.txt"), wav.with_name(wav.stem + "_diarized.srt")
-            txt.write_text(segments_to_txt(labelled), encoding="utf-8")
-            srt.write_text(segments_to_srt(labelled), encoding="utf-8")
-            job.outputs, job.segments = {"txt": txt, "srt": srt}, len(labelled)
-            job.status = "DONE"
-        except Exception as exc:
-            log.exception("Diarisation après coup")
-            job.status, job.error = "ERROR", f"{type(exc).__name__}: {exc}"
 
 
 def team_model():

@@ -390,30 +390,3 @@ def session_file(kind: Literal["wav", "raw_txt", "raw_srt", "diarized_txt", "dia
         raise ServiceError("Aucune session.", 404)
     path = manager.current.file_path(kind)
     return FileResponse(path, media_type=_TYPES[kind], filename=path.name if download else None)
-
-
-# --- Reprise après coup --------------------------------------------------------------------------------------
-
-class DemandeReprise(BaseModel):
-    wav_path: str
-    srt_path: str
-    model_path: str = ""
-    speakers: int = Field(0, ge=0, le=20)
-
-
-@router.get("/posthoc")
-def posthoc() -> dict[str, Any]:
-    return manager.posthoc.as_dict()
-
-
-@router.post("/posthoc")
-def start_posthoc(body: DemandeReprise) -> dict[str, Any]:
-    return manager.start_posthoc(body.wav_path, body.srt_path, body.model_path, body.speakers)
-
-
-@router.get("/posthoc/file/{kind}")
-def posthoc_file(kind: Literal["txt", "srt"]) -> FileResponse:
-    path = manager.posthoc.outputs.get(kind)
-    if not path or not path.is_file():
-        raise ServiceError("Ce fichier n'est pas disponible.", 404)
-    return FileResponse(path, media_type="text/plain; charset=utf-8", filename=path.name)

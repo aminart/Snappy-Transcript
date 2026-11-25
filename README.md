@@ -25,7 +25,6 @@ Elle remplace l'ancienne interface Streamlit (Audio Transcriber 1.5.7), dont ell
 - **Locuteurs** (optionnel) : diarisation locale pyannote Community-1 lancée en arrière-plan après l'arrêt, avec progression ;
   exports « avec locuteurs » séparés.
 - **Lecteur synchronisé** : clic sur une phrase pour y aller, phrase et mot lu surlignés ; bascule brute / avec locuteurs.
-- **Reprise après coup** : locuteurs d'une réunion déjà enregistrée à partir d'un WAV et d'un SRT (chemins locaux).
 - **Résultat exploitable** : copier le texte en un clic, corriger une phrase, nommer les intervenants ; les fichiers
   téléchargés reprennent les corrections et les noms.
 - **Historique** : chaque session est enregistrée (texte, audio, intervenants) et peut être rouverte plus tard.

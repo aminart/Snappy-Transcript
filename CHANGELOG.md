@@ -13,6 +13,8 @@
   menu « Exporter » avec le format Word.
 - Mes transcriptions : titres modifiables, recherche dans le texte de toutes les sessions (accents ignorés) avec
   l'extrait trouvé, filtres, intervenants nommés, et « Récupérer le texte » d'une session interrompue.
+  « Identifier les intervenants d'un enregistrement existant » (WAV + SRT) est retiré : un enregistrement existant
+  s'importe dans Transcrire › Depuis un fichier, et devient une session complète.
 - Menu simplifié : « Transcrire » et « Mes transcriptions » (ex-« Historique »). L'onglet « À propos » est retiré :
   la version s'affiche en pied de page.
 - « Qu'est-ce qu'on écoute ? » : ma voix, une application, tout le son de l'ordinateur, ou ma voix + une application.
