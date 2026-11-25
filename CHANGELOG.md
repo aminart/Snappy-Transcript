@@ -2,6 +2,8 @@
 
 ## [Non publié]
 
+- Menu simplifié : « Transcrire » et « Mes transcriptions » (ex-« Historique »). L'onglet « À propos » est retiré :
+  la version s'affiche en pied de page.
 - « Qu'est-ce qu'on écoute ? » : ma voix, une application, tout le son de l'ordinateur, ou ma voix + une application.
   Le son d'une seule application (Teams, Zoom, Chrome…) est capté sans les notifications ni la musique (Windows 10
   version 2004 ou plus récent) ; la liste montre les applications ouvertes, celles qui font du son d'abord, et

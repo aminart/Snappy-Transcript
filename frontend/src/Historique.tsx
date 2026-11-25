@@ -46,7 +46,7 @@ export const Historique: React.FC = () => {
     <>
       <div className="nn-page-head">
         <div>
-          <h1 className="nn-page-title">Historique</h1>
+          <h1 className="nn-page-title">Mes transcriptions</h1>
           <p className="nn-page-subtitle">Toutes vos transcriptions, enregistrées sur cet ordinateur. Rouvrez-en une pour la réécouter, la corriger ou nommer les intervenants.</p>
         </div>
       </div>

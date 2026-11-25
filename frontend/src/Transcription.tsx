@@ -496,7 +496,7 @@ export const Transcription: React.FC = () => {
                 <button type="button" className="nn-btn nn-btn-secondary" onClick={nouvelle} disabled={diarisationEnCours}>Nouvelle session</button>
                 <button type="button" className="nn-btn nn-btn-secondary" onClick={ouvrirDossier}>Ouvrir le dossier</button>
                 {fichiers.wav && state.kind !== "file" && <a className="nn-btn nn-btn-secondary" href="/api/session/file/wav?download=true" download>Audio (.wav)</a>}
-                <span className="text-[13px] text-ink-muted">Cette session reste disponible dans l'<a href="#/historique" className="text-accent underline">historique</a>.</span>
+                <span className="text-[13px] text-ink-muted">Cette session reste disponible dans <a href="#/historique" className="text-accent underline">Mes transcriptions</a>.</span>
               </div>
             </>
           )}
