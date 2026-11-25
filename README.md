@@ -1,102 +1,126 @@
-# Audio Transcriber V1.5.3.1
+# Snappy Transcript
 
-Correctif Windows COM/WASAPI : SoundCard est initialisé dans chaque thread qui utilise Media Foundation, ce qui corrige notamment `0x800401f0` sous Streamlit. L’énumération des sorties ne fait plus planter l’application en cas d’indisponibilité. Aucun nouveau paquet ni droit administrateur requis.
+Transcription **entièrement locale**, dans la suite Studio Dock : en direct (micro, son du PC — Teams, Jabber, navigateur… —
+ou les deux) ou depuis un fichier audio ou vidéo → [faster-whisper](https://github.com/SYSTRAN/faster-whisper) → texte, puis exports TXT / SRT / WAV,
+identification des locuteurs et lecteur audio synchronisé mot à mot. Aucun audio n'est envoyé sur le réseau.
 
-# Audio Transcriber V1.5.1
+L'app suit le modèle d'app de la suite ([StudioDock-app-modele](https://github.com/aminart/StudioDock-app-modele)) : design
+system Night Navy, lancement par Studio Dock (`--port`, `--no-browser`, `/health`), fabrication d'un `.exe`.
+Elle remplace l'ancienne interface Streamlit (Audio Transcriber 1.5.7), dont elle reprend toutes les fonctions.
 
-Application Streamlit Windows locale : microphone → faster-whisper → transcription live → WAV/TXT/SRT.
+## Ce qu'elle fait
 
-## Nouveautés V1.5.1
+- **Sources** : microphone ; audio système Windows (WASAPI loopback, sans pilote virtuel) ; micro + audio système mélangés.
+- **Transcription** : faster-whisper en local, CPU (`int8`) ou GPU NVIDIA (`float16`) avec repli automatique ; glossaire métier
+  (mots favorisés pendant le décodage) ; blocs de 3 à 15 s avec recouvrement dédupliqué ; ignorer les silences (VAD).
+- **Fichiers audio et vidéo**, dans leur format d'origine, sans conversion : MP3, WAV, M4A, AAC, FLAC, OGG, Opus, WMA, AIFF,
+  AMR, AC3… et les vidéos MP4, MOV, MKV, AVI, WMV, WebM, MPEG, TS, 3GP, FLV (la piste son est lue directement). Le fichier est
+  glissé dans la page, ou indiqué par son chemin sur le PC (très gros fichiers : lu sur place, sans copie). Progression avec
+  temps restant, pause, arrêt en gardant le texte déjà obtenu. Les longs fichiers sont traités par fenêtres de 10 minutes
+  coupées dans un silence : la mémoire reste bornée, même pour une réunion de plusieurs heures.
+- **Pause / reprise** sans fermer le WAV ; arrêt propre.
+- **Exports immédiats** à l'arrêt : TXT, SRT bruts et WAV, écrits par le serveur même si le navigateur est fermé.
+- **Locuteurs** (optionnel) : diarisation locale pyannote Community-1 lancée en arrière-plan après l'arrêt, avec progression ;
+  exports « avec locuteurs » séparés.
+- **Lecteur synchronisé** : clic sur une phrase pour y aller, phrase et mot lu surlignés ; bascule brute / avec locuteurs.
+- **Reprise après coup** : locuteurs d'une réunion déjà enregistrée à partir d'un WAV et d'un SRT (chemins locaux).
+- **Résultat exploitable** : copier le texte en un clic, corriger une phrase, nommer les intervenants ; les fichiers
+  téléchargés reprennent les corrections et les noms.
+- **Historique** : chaque session est enregistrée (texte, audio, intervenants) et peut être rouverte plus tard.
+- **Vu-mètre** pendant l'enregistrement et alerte si aucun son n'arrive.
+- **Copie de récupération** du texte après chaque bloc, en cas de plantage.
 
-- **Cache TXT anti-crash** : après chaque consolidation STT, une copie est écrite atomiquement dans `%LOCALAPPDATA%/AudioTranscriber/cache/` (ou dans le profil utilisateur si `LOCALAPPDATA` n'existe pas). Le cache reste présent après une session normale pour permettre la récupération.
-- **Timestamps mot à mot** : `faster-whisper` est appelé avec `word_timestamps=True`.
-- **Player mot à mot** : pendant la lecture du WAV, le mot courant est surligné lorsque Whisper a fourni son timing.
-- **Diarisation Community-1 réellement intégrée** : post-traitement local, chargement du snapshot depuis disque, sans téléchargement automatique.
-- **Fusion mot/locuteur** : chaque mot Whisper est rapproché de la timeline pyannote et un segment est scindé lorsqu'un changement de locuteur intervient. Community-1 utilise `exclusive_speaker_diarization` quand l'API installée l'expose, avec fallback compatible.
-- Le chemin faster-whisper reste mémorisé comme en V1.4.
+## Où sont les données
 
-## Installation STT
+Dossier `SnappyTranscript` dans `%LOCALAPPDATA%` (Windows), `~/Library/Application Support` (Mac) ou `~/.local/share` (Linux) ;
+variable `SNAPPY_DATA` pour le déplacer.
 
-```powershell
-python -m venv venv
-.\venv\Scripts\python.exe -m pip install -r requirements-stt.txt
-.\venv\Scripts\python.exe -m streamlit run app.py
+| Chemin | Contenu |
+|---|---|
+| `settings.json` | Réglages mémorisés (modèle, GPU, glossaire…) |
+| `sessions/<date>/` | `recording_….wav`, exports `transcript_…_raw.txt/.srt` et `…_diarized.txt/.srt`, texte de travail `transcript_raw.json` / `transcript_diarized.json` (avec les horaires des mots), fiche `session.json` (historique, noms des intervenants) |
+| `cache/transcript_<date>.txt` | Copie de récupération du texte, réécrite de façon atomique après chaque bloc |
+| `uploads/` | Fichiers glissés dans la page, le temps de leur lecture (supprimés ensuite, et au bout d'un jour au plus tard) |
+
+Les sessions de l'ancien Audio Transcriber sont dans `AudioTranscriber\` (même dossier parent) : elles ne sont pas migrées.
+
+## Tester rapidement
+
+Prérequis : Python 3.11+ et Node.js 20+.
+
+1. Double-cliquez sur **`install.bat`** (une seule fois). Derrière le proxy de l'entreprise, lancez-le depuis une invite
+   de commandes avec le certificat : `install.bat "C:\…\companyCA.crt"`.
+2. Double-cliquez sur **`start.bat`** : le navigateur s'ouvre sur http://127.0.0.1:8110. Fermez la fenêtre noire pour
+   arrêter l'application.
+
+Sans modèle de transcription, choisissez **Réglages avancés › Moteur › Simulation** pour tout essayer. Sur Mac :
+`./install.sh` puis `./start.sh`.
+
+## Développer
+
+Prérequis : Python 3.11+, Node.js 20+.
+
+```
+pip install -r requirements-dev.txt
+cd frontend && npm install && cd ..
+start_dev.bat
 ```
 
-## Diarisation optionnelle
+Sur Mac : `python backend/launcher.py --no-browser` dans un terminal, `cd frontend && npm run dev` dans un autre.
+L'interface est sur http://localhost:5173 (l'API sur le port 8110). Tests : `python -m pytest`.
 
-La transcription et le cache fonctionnent sans diarisation. Pour l'activer :
+### Modèle faster-whisper
 
-```powershell
-.\venv\Scripts\python.exe -m pip install -r requirements-diarization.txt
+**Dans l'équipe, rien à régler** : le modèle est fourni par Studio Dock. L'administratrice le déclare une fois dans
+Préparer pour l'équipe et dépose son .zip dans le dossier partagé ; Studio Dock l'installe chez chacun, et Snappy le lit
+avec `studiodock_ia.transcription()` (voir le README de Studio Dock, « Modèle de transcription de l'équipe »).
+
+Sans Studio Dock, ou pour essayer un autre modèle : **Transcription › Utiliser un autre modèle sur ce poste**, puis le
+dossier d'un modèle déjà converti (CTranslate2 : `config.json`, `model.bin`, `tokenizer.json`), par exemple
+`faster-whisper-small`. L'app ne télécharge jamais rien. Sans modèle, le moteur « Simulation » permet de tout essayer.
+
+### GPU NVIDIA (Windows, optionnel)
+
+`pip install -r backend/requirements-gpu.txt` installe cuBLAS 12 et cuDNN 9 dans le venv (pas de CUDA Toolkit système).
+L'app les expose à son seul processus. **Automatique** essaie le GPU puis retombe sur le CPU ; **GPU NVIDIA** affiche une
+erreur si CUDA n'est pas prêt ; **CPU** sert au diagnostic.
+
+### Diarisation (optionnel)
+
+`pip install -r backend/requirements-diarization.txt` (pyannote.audio et PyTorch : volumineux). Indiquez le dossier racine
+d'un pipeline local qui contient `config.yaml` et ses modèles : l'app ne télécharge aucun modèle et n'a besoin d'aucun jeton.
+
+> **Ne commitez jamais de jeton** (Hugging Face…) : `.gitignore` exclut `tokenpyannoteaudio.txt` et `*token*.txt`.
+
+## Fabriquer l'exe
+
+```
+build_exe.bat                  exe avec transcription faster-whisper
+build_exe.bat gpu              + runtimes CUDA
+build_exe.bat diarisation      + pyannote / PyTorch (exe très gros)
 ```
 
-Puis fournir dans l'interface le **dossier racine d'un pipeline pyannote local** contenant `config.yaml` et ses modèles nécessaires. Cette installation peut être volumineuse et dépend de la compatibilité de PyTorch avec la version Python/Windows de l'entreprise. Aucun téléchargement automatique de modèle de diarisation n'est déclenché par le code V1.5.
+L'exe est dans `dist\`. Sans option, la diarisation et le GPU ne sont pas inclus : l'interface le signale. Sur Mac :
+`build_exe_mac.sh` (la capture du son du PC n'existe que sous Windows).
 
-Après STOP, cliquer sur **Lancer / relancer la diarisation locale**. `0` locuteur laisse le pipeline estimer le nombre ; une valeur > 0 fixe le nombre attendu.
+## L'ajouter à Studio Dock
 
-## Récupération après crash
+Dans Studio Dock, **Préparer pour l'équipe › Applications** : type « S'ouvre dans le navigateur » (et non plus une app
+tierce sur `localhost`), identifiant `snappy-transcript`, programme `SnappyTranscript`, port **8110**, icône
+`icone/app.svg`, puis la fiche (à quoi elle sert, prise en main). Déposez `SnappyTranscript-0.1.0.exe` dans le sous-dossier
+de l'app du dossier de l'équipe. Nouvelle version : noter les changements dans `CHANGELOG.md`,
+`python scripts/bump_version.py 0.2.0`, fabriquer l'exe.
 
-Chercher le fichier le plus récent dans :
+## Organisation du code
 
-```text
-%LOCALAPPDATA%\AudioTranscriber\cache\transcript_YYYY-MM-DD_HH-MM-SS.txt
-```
-
-Le fichier est remplacé atomiquement après chaque résultat STT consolidé, afin d'éviter autant que possible un cache partiellement écrit.
-
-## Confidentialité
-
-Le chemin microphone reste PCM16 → NumPy → faster-whisper local. Le player utilise le WAV en mémoire. La diarisation V1.5.1 est conçue pour un pipeline local fourni par l'utilisateur. Aucun audio n'est envoyé par l'application vers un service cloud.
-
-## V1.5.2 — longues réunions et reprise après coup
-- Le microphone est spoulé directement vers un WAV local sous `%LOCALAPPDATA%\\AudioTranscriber\\sessions\\<session>` : l'audio complet n'est plus conservé en RAM.
-- Les gros WAV (>100 MiB) ne sont plus injectés dans le navigateur ni dans un composant HTML/Base64. Cela évite la limite WebSocket Streamlit observée vers 200 MiB.
-- L'affichage live est borné aux ~50 000 derniers caractères ; le cache texte complet continue d'être écrit atomiquement.
-- Une section **Reprise / diarisation après coup** accepte des chemins locaux WAV + SRT et produit `*_diarized.txt` et `*_diarized.srt` sans refaire le STT.
-- La diarisation reste locale avec Community-1. Pour la reprise SRT, l'attribution est au niveau du segment SRT ; les timestamps mot-à-mot ne peuvent pas être reconstruits depuis un SRT standard.
-- Pour les longues réunions, le player utilise `st.audio` avec le fichier local plutôt qu'un WAV Base64. L'ancien `st.components.v1.html` n'est plus utilisé par `app.py`.
-
-## V1.5.3
-- La section « Reprise / diarisation après coup » est placée après la transcription live.
-- La diarisation affiche la phase pyannote, la progression disponible, le temps écoulé et une ETA estimée lorsque pyannote fournit completed/total.
-- Capture Windows ajoutée via WASAPI loopback (`soundcard`) sans pilote virtuel : `Audio système` et `Micro + audio système`.
-- Le mode mixte additionne micro et sortie Windows en PCM16 mono avant WAV/STT. Avec des haut-parleurs, le micro peut réentendre les participants distants : un casque reste préférable pour éviter le doublonnage acoustique.
-- Teams/Jabber ne sont pas intégrés directement : la capture vise la sortie audio Windows utilisée par ces applications.
-
-Après mise à jour, réinstaller les dépendances applicatives pour ajouter SoundCard :
-```powershell
-.\.venv\Scripts\python.exe -m pip install -r requirements.txt
-```
-
-## V1.5.4
-- La diarisation locale pyannote est sélectionnée par défaut. Si le pipeline local est valide au START, la session mémorise ce choix et lance automatiquement la diarisation après STOP et finalisation STT.
-- La diarisation de la session courante peut être relancée après coup sans passer par l'outil de récupération WAV + SRT.
-- Les timestamps mot à mot de faster-whisper sont préservés lors de la fusion avec les speakers.
-- Le player synchronisé mot à mot est restauré. Pour éviter la régression WebSocket des longues réunions, le WAV n'est plus encodé en Base64 : un petit serveur média local lié à `127.0.0.1` fournit le fichier au navigateur avec support HTTP Range/seek. Aucun audio n'est exposé sur le réseau de l'entreprise.
-
-## V1.5.7 — GPU NVIDIA optionnel (Windows)
-
-Le mode **Automatique** tente faster-whisper sur NVIDIA CUDA en `float16`, puis revient sur CPU `int8` si CUDA n'est pas prêt. Le mode **GPU NVIDIA** est strict et affiche une erreur plutôt que de masquer un problème CUDA. Le mode **CPU** permet le diagnostic.
-
-Les runtimes peuvent rester entièrement dans le venv (pas de CUDA Toolkit système) :
-
-```powershell
-.\venv\Scripts\python.exe -m pip install -r requirements-gpu.txt --cert "C:\Users\...\.continue\companyCA.crt"
-```
-
-L'application expose les dossiers `nvidia/cublas/bin` et `nvidia/cudnn/bin` uniquement au processus Python. La diarisation pyannote reste indépendante et utilise CPU tant que PyTorch CUDA n'est pas disponible.
-
-## Correctif V1.5.7 — lecteur stable après STOP
-
-Le rafraîchissement Streamlit à 1 seconde est désormais limité à la capture et à la finalisation STT. La diarisation automatique s’exécute uniquement après STOP, puis le lecteur audio synchronisé est rendu dans une vue statique sans `run_every`, afin de préserver play/pause, la position de lecture et la surbrillance mot à mot.
-
-
-## V1.5.7
-
-- Pause / Reprise sans fermer le WAV : l’audio reçu pendant la pause est ignoré et la timeline enregistrée reste continue.
-- STOP ferme/finalise le WAV et le STT.
-- TXT/SRT RAW sont figés et écrits sur disque immédiatement après finalisation STT.
-- La diarisation automatique s’exécute ensuite dans un thread de fond et produit des fichiers `*_diarized.txt` / `*_diarized.srt` séparés.
-- Le lecteur RAW reste statique pendant le suivi de diarisation.
-- Champ de glossaire métier persistant transmis à faster-whisper via `hotwords` et `initial_prompt`. Utiliser surtout noms propres, acronymes et jargon spécifique.
+| Chemin | Rôle |
+|---|---|
+| `backend/app_info.py`, `launcher.py`, `studiodock_ia.py` | Contrat de Studio Dock, identité : **à ne pas modifier** (modèle de la suite) |
+| `backend/main.py` | Serveur : `/health`, API, interface compilée, arrêt propre de la session en cours |
+| `backend/snappy/api.py` | Routes `/api/…` |
+| `backend/snappy/service.py` | Session active, exports, diarisation en arrière-plan, reprise après coup |
+| `backend/snappy/session.py` | Capture → WAV + blocs → STT (threads), pause, déduplication du recouvrement |
+| `backend/snappy/media.py`, `file_session.py` | Lecture des fichiers (PyAV / FFmpeg) → WAV 16 kHz, transcription d'un fichier |
+| `backend/snappy/audio/`, `transcription/`, `diarization.py` | Sources audio, faster-whisper / CUDA, pyannote |
+| `frontend/src/` | Interface React + Tailwind + Night Navy |
+| `tests/` | Contrat Studio Dock, API de bout en bout (source factice), session, exports, diarisation |

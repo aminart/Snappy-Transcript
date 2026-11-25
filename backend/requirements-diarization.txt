@@ -1,0 +1,4 @@
+# Post-traitement optionnel (diarisation locale). Installation volumineuse (PyTorch).
+-r requirements-stt.txt
+pyannote.audio>=3.3,<5
+torch>=2.2

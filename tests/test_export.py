@@ -1,6 +1,6 @@
-from models.transcript import TranscriptSegment
-from utils.export import segments_to_srt, segments_to_txt, timestamp
-from utils.import_transcript import parse_srt
+from snappy.models import TranscriptSegment
+from snappy.export import segments_to_srt, segments_to_txt, timestamp
+from snappy.srt import parse_srt
 
 
 def test_timestamp_txt_et_srt():
