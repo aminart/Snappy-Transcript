@@ -1,0 +1,4 @@
+-r requirements-stt.txt
+# Optional V1.5 post-processing. Installation can be large on Windows.
+pyannote.audio>=3.3,<5
+torch>=2.2
