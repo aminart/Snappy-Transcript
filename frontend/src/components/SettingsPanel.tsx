@@ -103,10 +103,14 @@ export const SettingsPanel: React.FC<Props> = ({ reglages: r, regler, capacites,
                     onClick={() => regler("acceleration", a.id)}>{a.label}</button>
                 ))}
               </div>
-              <span className="text-[13px] leading-snug text-ink-muted">
-                {cuda?.ready ? `✓ CUDA prêt · ${cuda.gpu_count} GPU` : cuda ? `GPU non prêt : ${cuda.detail}` : "Vérification du GPU…"}
-                {" "}Automatique essaie le GPU puis revient sur le CPU ; « GPU NVIDIA » affiche une erreur si CUDA n'est pas prêt.
+              <span className="text-[13px] leading-snug text-ink-muted" title={cuda?.detail}>
+                {cuda ? cuda.message : "Vérification de la carte graphique…"}
               </span>
+              {r.acceleration === "gpu" && cuda && !cuda.ready && (
+                <span role="alert" className="text-[13px] leading-snug text-warning-text">
+                  « GPU NVIDIA » impose la carte graphique : la transcription ne pourra pas démarrer. Choisissez « Automatique ».
+                </span>
+              )}
             </div>
           </>
         )}
