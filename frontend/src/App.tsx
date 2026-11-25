@@ -37,7 +37,7 @@ export const App: React.FC = () => {
   React.useEffect(() => { document.title = nom; }, [nom]);
 
   return (
-    <div className="min-h-screen bg-bg text-ink-body">
+    <div className="flex min-h-screen flex-col bg-bg text-ink-body">
       <header className="nn-appbar sticky top-0 z-10">
         {/* 1 · Identité : icône (sa couleur propre) et nom */}
         <a className="nn-appbar-brand" href="#/">
@@ -59,11 +59,11 @@ export const App: React.FC = () => {
         </div>
       </header>
 
-      <main className="mx-auto flex max-w-[1280px] flex-col gap-6 px-6 py-8">
+      <main className="mx-auto flex w-full max-w-[1280px] flex-1 flex-col gap-6 px-6 py-8">
         {page === "transcription" ? <Transcription /> : <Historique />}
       </main>
-      {/* Version, pour le support : discrète, plus d'onglet « À propos » */}
-      <footer className="mx-auto max-w-[1280px] px-6 pb-6 text-[12px] text-ink-muted">
+      {/* Version, pour le support : discrète, toujours en bas de la fenêtre (main occupe la hauteur restante) */}
+      <footer className="mx-auto w-full max-w-[1280px] px-6 pb-6 text-[12px] text-ink-muted">
         {nom}{sante?.version ? ` ${sante.version}` : ""} · tout reste sur cet ordinateur
       </footer>
     </div>
