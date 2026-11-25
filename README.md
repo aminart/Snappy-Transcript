@@ -44,6 +44,18 @@ variable `SNAPPY_DATA` pour le déplacer.
 
 Les sessions de l'ancien Audio Transcriber sont dans `AudioTranscriber\` (même dossier parent) : elles ne sont pas migrées.
 
+## Tester rapidement
+
+Prérequis : Python 3.11+ et Node.js 20+.
+
+1. Double-cliquez sur **`install.bat`** (une seule fois). Derrière le proxy de l'entreprise, lancez-le depuis une invite
+   de commandes avec le certificat : `install.bat "C:\…\companyCA.crt"`.
+2. Double-cliquez sur **`start.bat`** : le navigateur s'ouvre sur http://127.0.0.1:8110. Fermez la fenêtre noire pour
+   arrêter l'application.
+
+Sans modèle de transcription, choisissez **Réglages avancés › Moteur › Simulation** pour tout essayer. Sur Mac :
+`./install.sh` puis `./start.sh`.
+
 ## Développer
 
 Prérequis : Python 3.11+, Node.js 20+.
