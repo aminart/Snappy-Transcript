@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+<title>Snappy Transcript</title>
+<defs>
+<linearGradient id="fond" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#A3AEC2"/><stop offset=".55" stop-color="#5E6B85"/><stop offset="1" stop-color="#2E3647"/></linearGradient>
+<linearGradient id="blanc" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FFFFFF"/><stop offset="1" stop-color="#EEF1FA"/></linearGradient>
+<linearGradient id="clair" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#E6EAF2"/><stop offset="1" stop-color="#C4CCDB"/></linearGradient>
+<linearGradient id="ambre" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#FFD08A"/><stop offset="1" stop-color="#F0B35B"/></linearGradient>
+<clipPath id="tuile"><rect width="512" height="512" rx="116"/></clipPath>
+<filter id="ombre" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="12"/></filter>
+</defs>
+<rect width="512" height="512" rx="116" fill="url(#fond)"/>
+
+<path d="M78 244 A94 94 0 0 0 266 244" fill="none" stroke="url(#clair)" stroke-width="30" stroke-linecap="round"/><path d="M172 344 V404" fill="none" stroke="url(#clair)" stroke-width="30" stroke-linecap="round"/><g fill="url(#blanc)"><rect x="104" y="88" width="136" height="232" rx="68"/></g><g fill="url(#clair)"><rect x="300" y="170" width="128" height="36" rx="18"/><rect x="300" y="250" width="96" height="36" rx="18"/></g><circle cx="404" cy="384" r="44" fill="url(#ambre)"/>
+</svg>

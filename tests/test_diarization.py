@@ -1,5 +1,5 @@
-from diarization.local_pyannote import _best, _merge, validate_diarization_model
-from models.transcript import TranscriptSegment, TranscriptWord
+from snappy.diarization import _best, _merge, validate_diarization_model
+from snappy.models import TranscriptSegment, TranscriptWord
 
 TOURS = [(0.0, 2.0, "SPEAKER_00"), (2.0, 5.0, "SPEAKER_01")]
 

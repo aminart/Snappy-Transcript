@@ -1,0 +1,4 @@
+# Runtimes CUDA locaux Windows validés pour CTranslate2/faster-whisper.
+-r requirements-stt.txt
+nvidia-cublas-cu12==12.8.4.1
+nvidia-cudnn-cu12==9.8.0.87
