@@ -60,8 +60,22 @@ Sans modèle de transcription, choisissez **Réglages avancés › Moteur › Si
 Le design system Night Navy est inclus dans le dépôt (`frontend/vendor/night-navy-1.2.1.tgz`) : npm n'a pas besoin
 d'accéder à GitHub, souvent bloqué sur le réseau de l'entreprise. Pour passer à une nouvelle version de Night Navy :
 `npm pack` dans le dépôt Design-system- à la bonne étiquette, remplacer le .tgz, mettre à jour `package.json`, puis
-`npm install`. Sur Mac :
-`./install.sh` puis `./start.sh`.
+`npm install`.
+
+### Sur Mac
+
+Prérequis : Python 3.11 à 3.13 ([python.org](https://www.python.org/downloads/macos/) ou `brew install python@3.12`)
+et Node.js 20+ ([nodejs.org](https://nodejs.org/), version LTS, ou `brew install node`).
+
+1. Dans le Terminal, dans le dossier du projet : **`./install.sh`** (une seule fois, quelques minutes).
+   Options : `./install.sh intervenants` pour l'identification des intervenants (Mac Apple Silicon uniquement :
+   PyTorch n'est plus publié pour les Mac Intel), `./install.sh /chemin/companyCA.crt` derrière le proxy de l'entreprise.
+2. **`./start.sh`** : le navigateur s'ouvre sur http://127.0.0.1:8110 ; Ctrl+C dans le Terminal pour arrêter.
+   L'interface est refabriquée automatiquement après un `git pull`.
+
+Dossier téléchargé en .zip et fichiers non exécutables : `sh install.sh` puis `sh start.sh`. Au premier
+enregistrement, macOS demande l'accès au micro pour le Terminal. Sur Mac, la voix (micro) et les fichiers sont
+transcrits ; le son d'une application ou de tout l'ordinateur ne peut être capté que sous Windows.
 
 ## Développer
 
