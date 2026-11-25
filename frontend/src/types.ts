@@ -2,8 +2,10 @@ export type Source = "microphone" | "system" | "mixed";
 export type Engine = "local" | "mock";
 export type Acceleration = "auto" | "gpu" | "cpu";
 export type Language = "fr" | "en" | "auto";
+export type Mode = "live" | "file";
 
 export interface Settings {
+  mode: Mode;
   source: Source;
   engine: Engine;
   input_device: string;
@@ -26,6 +28,8 @@ export interface Capabilities {
   stt: boolean;
   diarization: boolean;
   system_audio: boolean;
+  files: boolean;
+  file_extensions: string[];
 }
 
 export interface InputDevice { index: number; name: string; channels: number; default_samplerate: number }
@@ -61,10 +65,20 @@ export interface Diarisation {
 
 export interface FichiersSession { wav: boolean; raw_txt: boolean; raw_srt: boolean; diarized_txt: boolean; diarized_srt: boolean }
 
+export interface AvancementFichier {
+  name: string;
+  phase: "decoding" | "transcribing" | "done";
+  fraction: number | null;
+  eta: number | null;
+  media_duration: number | null;
+}
+
 export interface SessionState {
   active: boolean;
   id: string;
-  status: "LISTENING" | "TRANSCRIBING" | "PAUSED" | "STOPPED" | "ERROR";
+  kind: Mode;
+  file: AvancementFichier | null;
+  status: "LISTENING" | "TRANSCRIBING" | "DECODING" | "PAUSED" | "STOPPED" | "ERROR";
   paused: boolean;
   stopping: boolean;
   finalized: boolean;
