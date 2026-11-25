@@ -1,4 +1,5 @@
 import React from "react";
+import { Historique } from "./Historique";
 import { Transcription } from "./Transcription";
 
 /*
@@ -6,7 +7,7 @@ import { Transcription } from "./Transcription";
  * propre ; tout le reste suit Night Navy. Les pages sont dans Transcription.tsx.
  */
 
-type Page = "transcription" | "a-propos";
+type Page = "transcription" | "historique" | "a-propos";
 
 interface Sante {
   name: string;
@@ -22,10 +23,12 @@ interface EtatIA {
 
 const PAGES: { id: Page; label: string }[] = [
   { id: "transcription", label: "Transcription" },
+  { id: "historique", label: "Historique" },
   { id: "a-propos", label: "À propos" },
 ];
 
-const pageDepuisAdresse = (): Page => (window.location.hash === "#/a-propos" ? "a-propos" : "transcription");
+const pageDepuisAdresse = (): Page =>
+  window.location.hash === "#/a-propos" ? "a-propos" : window.location.hash === "#/historique" ? "historique" : "transcription";
 
 export const App: React.FC = () => {
   const [page, setPage] = React.useState<Page>(pageDepuisAdresse);
@@ -65,7 +68,7 @@ export const App: React.FC = () => {
       </header>
 
       <main className="mx-auto flex max-w-[1280px] flex-col gap-6 px-6 py-8">
-        {page === "transcription" ? <Transcription /> : <APropos sante={sante} />}
+        {page === "transcription" ? <Transcription /> : page === "historique" ? <Historique /> : <APropos sante={sante} />}
       </main>
     </div>
   );

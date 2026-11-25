@@ -182,6 +182,71 @@ def discard() -> dict[str, bool]:
     return {"ok": True}
 
 
+@router.get("/session/level")
+def level() -> dict[str, Any]:
+    """Vu-mètre (appelé plusieurs fois par seconde pendant l'enregistrement) : niveau 0-1 et secondes de silence."""
+    s = manager.current
+    live = s.live if s else None
+    if live is None or not hasattr(live, "level") or s.finished:
+        return {"level": None, "silence": 0}
+    return {"level": round(live.level, 3), "silence": round(live.silence_seconds, 1)}
+
+
+class Correction(BaseModel):
+    variant: Literal["raw", "diarized"] = "raw"
+    index: int = Field(ge=0)
+    text: str
+
+
+@router.put("/session/segment")
+def edit_segment(body: Correction) -> dict[str, Any]:
+    if not manager.current:
+        raise ServiceError("Aucune session.", 404)
+    return manager.current.edit_segment(body.variant, body.index, body.text)
+
+
+class Noms(BaseModel):
+    names: dict[str, str]
+
+
+@router.put("/session/speakers")
+def rename_speakers(body: Noms) -> dict[str, Any]:
+    if not manager.current:
+        raise ServiceError("Aucune session.", 404)
+    manager.current.rename_speakers(body.names)
+    return {"speakers": manager.current.speakers()}
+
+
+@router.post("/session/open-folder")
+def open_current_folder() -> dict[str, bool]:
+    manager.open_session_folder()
+    return {"ok": True}
+
+
+# --- Historique ----------------------------------------------------------------------------------------------
+
+@router.get("/history")
+def history() -> dict[str, Any]:
+    return {"sessions": manager.history()}
+
+
+@router.post("/history/{session_id}/open")
+def reopen(session_id: str) -> dict[str, Any]:
+    return manager.reopen(session_id)
+
+
+@router.post("/history/{session_id}/folder")
+def history_folder(session_id: str) -> dict[str, bool]:
+    manager.open_session_folder(session_id)
+    return {"ok": True}
+
+
+@router.delete("/history/{session_id}")
+def delete_session(session_id: str) -> dict[str, Any]:
+    manager.delete_session(session_id)
+    return {"sessions": manager.history()}
+
+
 @router.get("/session/transcript")
 def transcript(variant: Literal["raw", "diarized"] = "raw") -> dict[str, Any]:
     if not manager.current:

@@ -105,4 +105,25 @@ export interface SessionState {
   session_dir: string;
   recovery_copy: string;
   save_audio: boolean;
+  speakers: Intervenant[];
+  /** Session rouverte depuis l'historique. */
+  archived: boolean;
+}
+
+export interface Intervenant { label: string; name: string; seconds: number }
+
+export interface Niveau { level: number | null; silence: number }
+
+export interface SessionPassee {
+  id: string;
+  interrupted: boolean;
+  kind: Mode;
+  name: string | null;
+  started?: string;
+  duration: number | null;
+  segments: number | null;
+  diarized: boolean;
+  audio: boolean;
+  error?: string;
+  current: boolean;
 }

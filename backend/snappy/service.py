@@ -5,9 +5,14 @@ finalisation écrit les exports dès que la transcription est terminée, et la d
 """
 from __future__ import annotations
 
+import json
 import logging
+import os
 import re
 import secrets
+import shutil
+import subprocess
+import sys
 import threading
 import time
 from dataclasses import dataclass
@@ -57,6 +62,12 @@ class StartParams:
     diarization: bool = True
     diarization_model_path: str = ""
     speaker_hint: int = 0
+
+
+def segment_from_dict(d: dict[str, Any]) -> TranscriptSegment:
+    from .models import TranscriptWord
+    return TranscriptSegment(float(d["start"]), float(d["end"]), str(d["text"]), d.get("speaker"),
+                             tuple(TranscriptWord(float(a), float(b), str(t)) for a, b, t in d.get("words") or []))
 
 
 def segment_to_dict(seg: TranscriptSegment, words: bool = False) -> dict[str, Any]:
@@ -123,6 +134,8 @@ class ActiveSession:
         self.raw_segments: list[TranscriptSegment] | None = None
         self.diarized_segments: list[TranscriptSegment] | None = None
         self.raw_txt = self.raw_srt = self.diar_txt = self.diar_srt = None
+        self.speaker_names: dict[str, str] = {}       # « SPEAKER_00 » → « Marie », repris dans les exports
+        self.started = time.strftime("%Y-%m-%dT%H:%M:%S")
         self._exports_done = threading.Event()
         self._lock = threading.RLock()
 
@@ -155,12 +168,87 @@ class ActiveSession:
         with self._lock:
             if self.raw_segments is not None:
                 return
-            raw = self.live.segments()
-            self.raw_txt = self.live.session_dir / f"transcript_{self.stamp}_raw.txt"
-            self.raw_srt = self.live.session_dir / f"transcript_{self.stamp}_raw.srt"
-            self.raw_txt.write_text(segments_to_txt(raw), encoding="utf-8")
-            self.raw_srt.write_text(segments_to_srt(raw), encoding="utf-8")
-            self.raw_segments = raw
+            self.raw_segments = self.live.segments()
+            self.save()
+
+    # -- sauvegarde : exports, texte (pour rouvrir la session) et fiche de l'historique ------------------------
+
+    def named(self, segments: list[TranscriptSegment]) -> list[TranscriptSegment]:
+        from dataclasses import replace
+        return [replace(s, speaker=self.speaker_names.get(s.speaker, s.speaker)) if s.speaker else s for s in segments]
+
+    def save(self) -> None:
+        """Réécrit les exports et la fiche de la session (après la transcription, la diarisation, chaque correction)."""
+        with self._lock:
+            d = self.live.session_dir
+            if self.raw_segments is not None:
+                self.raw_txt, self.raw_srt = d / f"transcript_{self.stamp}_raw.txt", d / f"transcript_{self.stamp}_raw.srt"
+                _write(self.raw_txt, segments_to_txt(self.raw_segments))
+                _write(self.raw_srt, segments_to_srt(self.raw_segments))
+                _write(d / "transcript_raw.json", json.dumps([segment_to_dict(s, True) for s in self.raw_segments], ensure_ascii=False))
+            if self.diarized_segments is not None:
+                nommes = self.named(self.diarized_segments)
+                self.diar_txt, self.diar_srt = d / f"transcript_{self.stamp}_diarized.txt", d / f"transcript_{self.stamp}_diarized.srt"
+                _write(self.diar_txt, segments_to_txt(nommes))
+                _write(self.diar_srt, segments_to_srt(nommes))
+                _write(d / "transcript_diarized.json",
+                       json.dumps([segment_to_dict(s, True) for s in self.diarized_segments], ensure_ascii=False))
+            fiche = {"format": 1, "id": self.stamp, "kind": getattr(self.live, "kind", "live"),
+                     "name": getattr(self.live, "display_name", None), "started": self.started,
+                     "duration": round(self.live.duration, 1), "language": self.params.language,
+                     "segments": len(self.raw_segments or []), "diarized": self.diarized_segments is not None,
+                     "speaker_names": self.speaker_names, "error": self.live.stats.last_error or ""}
+            _write(d / SESSION_FILE, json.dumps(fiche, ensure_ascii=False, indent=2))
+
+    # -- corrections -----------------------------------------------------------------------------------------
+
+    def _editable(self, variant: str) -> list[TranscriptSegment]:
+        if not self.finished:
+            raise ServiceError("La session n'est pas terminée.", 409)
+        if variant == "diarized":
+            if self.diar.running:
+                raise ServiceError("Attendez la fin de l'identification des intervenants.", 409)
+            if self.diarized_segments is None:
+                raise ServiceError("Les intervenants n'ont pas été identifiés pour cette session.", 404)
+            return self.diarized_segments
+        return self.raw_segments or []
+
+    def edit_segment(self, variant: str, index: int, text: str) -> dict[str, Any]:
+        """Corrige le texte d'une phrase ; l'horodatage mot à mot de cette phrase est abandonné."""
+        from dataclasses import replace
+        text = " ".join((text or "").split())
+        if not text:
+            raise ServiceError("Une phrase ne peut pas être vide.", 422)
+        with self._lock:
+            segments = self._editable(variant)
+            if not 0 <= index < len(segments):
+                raise ServiceError("Cette phrase n'existe plus : rechargez la page.", 404)
+            if segments[index].text != text:
+                segments[index] = replace(segments[index], text=text, words=())
+                self.save()
+            return segment_to_dict(self.named([segments[index]])[0], words=True)
+
+    def rename_speakers(self, names: dict[str, str]) -> dict[str, str]:
+        with self._lock:
+            labels = {s.speaker for s in self._editable("diarized") if s.speaker}
+            nouveaux = {}
+            for label, nom in names.items():
+                nom = " ".join(str(nom or "").split())[:40]
+                if label in labels and nom and nom != label:
+                    nouveaux[label] = nom
+            self.speaker_names = nouveaux
+            self.save()
+            return self.speaker_names
+
+    def speakers(self) -> list[dict[str, Any]]:
+        if self.diarized_segments is None:
+            return []
+        compte: dict[str, float] = {}
+        for s in self.diarized_segments:
+            if s.speaker:
+                compte[s.speaker] = compte.get(s.speaker, 0.0) + (s.end - s.start)
+        return [{"label": l, "name": self.speaker_names.get(l, ""), "seconds": round(t)}
+                for l, t in sorted(compte.items())]
 
     def _discard_wav_if_unwanted(self) -> None:
         """« Conserver le WAV » décoché : l'enregistrement n'est gardé que le temps dont la diarisation a besoin."""
@@ -185,11 +273,10 @@ class ActiveSession:
         job = self.diar
         try:
             labelled = _diarize(self.live.wav_path, list(self.raw_segments or self.live.segments()), model, speakers, job)
-            self.diar_txt = self.live.session_dir / f"transcript_{self.stamp}_diarized.txt"
-            self.diar_srt = self.live.session_dir / f"transcript_{self.stamp}_diarized.srt"
-            self.diar_txt.write_text(segments_to_txt(labelled), encoding="utf-8")
-            self.diar_srt.write_text(segments_to_srt(labelled), encoding="utf-8")
-            self.diarized_segments = labelled
+            with self._lock:
+                self.diarized_segments = list(labelled)
+                self.speaker_names = {}  # nouvelle identification : les étiquettes peuvent avoir changé
+                self.save()
             job.status = "DONE"
             self._discard_wav_if_unwanted()
         except Exception as exc:
@@ -206,6 +293,8 @@ class ActiveSession:
 
     def provider_info(self) -> dict[str, str]:
         p = self.provider
+        if p is None:
+            return {"engine": "Session rouverte depuis l'historique"}
         if not hasattr(p, "model"):
             return {"engine": "Simulation"}
         return {"engine": "faster-whisper", "faster_whisper": getattr(p, "faster_whisper_version", ""),
@@ -234,13 +323,15 @@ class ActiveSession:
             "files": self.files() if self.finished else {},
             "session_dir": str(live.session_dir), "recovery_copy": str(live.cache.path),
             "save_audio": self.params.save_audio,
+            "speakers": self.speakers() if self.finished else [],
+            "archived": isinstance(live, ArchivedLive),
         }
 
     def transcript(self, variant: str) -> list[dict[str, Any]]:
         if variant == "diarized":
             if self.diarized_segments is None:
-                raise ServiceError("La transcription avec locuteurs n'est pas encore prête.", 404)
-            segs = self.diarized_segments
+                raise ServiceError("La transcription avec intervenants n'est pas encore prête.", 404)
+            segs = self.named(self.diarized_segments)
         else:
             segs = self.raw_segments if self.raw_segments is not None else self.live.segments()
         return [segment_to_dict(s, words=True) for s in segs]
@@ -252,6 +343,60 @@ class ActiveSession:
         if not path or not path.is_file():
             raise ServiceError("Ce fichier n'est pas (ou plus) disponible.", 404)
         return path
+
+
+SESSION_FILE = "session.json"
+
+
+def _write(path: Path, text: str) -> None:
+    """Écriture atomique : un export n'est jamais à moitié écrit, même en cas de plantage."""
+    tmp = path.with_name(path.name + ".part")
+    tmp.write_text(text, encoding="utf-8")
+    os.replace(tmp, path)
+
+
+class ArchivedLive:
+    """Une session passée, relue sur le disque : terminée, avec la même interface qu'une session live."""
+
+    def __init__(self, session_dir: Path, fiche: dict[str, Any]):
+        from .session import SessionStats
+        self.session_dir = session_dir
+        self.kind = fiche.get("kind") or "live"
+        self.display_name = fiche.get("name")
+        self.duration = float(fiche.get("duration") or 0)
+        self.wav_path = session_dir / f"recording_{session_dir.name}.wav"
+        self.stats = SessionStats(last_error=str(fiche.get("error") or ""))
+        self.cache = type("Copie", (), {"path": app_data_dir() / "cache" / f"transcript_{session_dir.name}.txt"})()
+        self.status, self.is_paused, self.stop_requested, self.is_finalized, self.queue_size = "STOPPED", False, False, True, 0
+
+    def segments(self) -> list[TranscriptSegment]:
+        return []
+
+    def progress_info(self) -> dict[str, Any] | None:
+        if self.kind != "file":
+            return None
+        return {"name": self.display_name, "phase": "done", "fraction": 1.0, "eta": None, "media_duration": self.duration}
+
+
+def _lire_segments(path: Path) -> list[TranscriptSegment] | None:
+    try:
+        return [segment_from_dict(d) for d in json.loads(path.read_text(encoding="utf-8"))]
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+
+
+def sessions_dir() -> Path:
+    return app_data_dir() / "sessions"
+
+
+def open_folder(path: Path) -> None:
+    """Ouvre le dossier dans l'Explorateur (Finder sur Mac) : le serveur tourne sur le PC de la personne."""
+    if sys.platform == "win32":
+        os.startfile(str(path))  # type: ignore[attr-defined]
+    elif sys.platform == "darwin":
+        subprocess.Popen(["open", str(path)])
+    else:
+        subprocess.Popen(["xdg-open", str(path)])
 
 
 # --- Reprise après coup (WAV + SRT déjà sur le disque) ------------------------------------------------------
@@ -468,6 +613,94 @@ class Manager:
             if s.diar.running:
                 raise ServiceError("Attendez la fin de la diarisation avant de commencer une nouvelle session.", 409)
             self.current = None
+
+    # -- historique ------------------------------------------------------------------------------------------------
+
+    def history(self) -> list[dict[str, Any]]:
+        """Sessions enregistrées, de la plus récente à la plus ancienne. Une session sans fiche (application fermée
+        pendant l'enregistrement) apparaît comme interrompue : son WAV et sa copie de récupération restent."""
+        courant = self.current.stamp if self.current else None
+        sorties = []
+        try:
+            dossiers = sorted((d for d in sessions_dir().iterdir() if d.is_dir()), key=lambda d: d.name, reverse=True)
+        except OSError:
+            return []
+        for d in dossiers:
+            try:
+                fiche = json.loads((d / SESSION_FILE).read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                fiche = None
+            if d.name == courant and (fiche is None or not self.current.finished):
+                continue  # session en cours : elle est sur la page principale
+            wav = d / f"recording_{d.name}.wav"
+            if fiche is None:
+                copie = app_data_dir() / "cache" / f"transcript_{d.name}.txt"
+                if not wav.is_file() and not copie.is_file():
+                    continue
+                sorties.append({"id": d.name, "interrupted": True, "kind": "live", "name": None, "duration": None,
+                                "segments": None, "diarized": False, "audio": wav.is_file(), "current": False})
+                continue
+            sorties.append({"id": d.name, "interrupted": False, "kind": fiche.get("kind"), "name": fiche.get("name"),
+                            "started": fiche.get("started"), "duration": fiche.get("duration"),
+                            "segments": fiche.get("segments"), "diarized": bool(fiche.get("diarized")),
+                            "audio": wav.is_file(), "error": fiche.get("error") or "", "current": d.name == courant})
+        return sorties
+
+    def _session_dir(self, session_id: str) -> Path:
+        if not re.fullmatch(r"[0-9]{4}-[0-9]{2}-[0-9]{2}_[0-9]{2}-[0-9]{2}-[0-9]{2}(-[0-9]+)?", session_id or ""):
+            raise ServiceError("Session inconnue.", 404)
+        d = sessions_dir() / session_id
+        if not d.is_dir():
+            raise ServiceError("Cette session n'existe plus.", 404)
+        return d
+
+    def reopen(self, session_id: str) -> dict[str, Any]:
+        """Rouvre une session passée sur la page principale (exports, lecteur, corrections, intervenants)."""
+        with self._lock:
+            if self.current and self.current.stamp == session_id:
+                return self.current.state()
+            self._check_free()
+            d = self._session_dir(session_id)
+            try:
+                fiche = json.loads((d / SESSION_FILE).read_text(encoding="utf-8"))
+            except (OSError, ValueError) as exc:
+                raise ServiceError("Session interrompue : seul son dossier peut être ouvert.", 409) from exc
+            raw = _lire_segments(d / "transcript_raw.json")
+            if raw is None:
+                raise ServiceError("Le texte de cette session est illisible.", 409)
+            params = StartParams(language=str(fiche.get("language") or "fr"), save_audio=True, diarization=False)
+            active = ActiveSession(ArchivedLive(d, fiche), session_id, params, MockProvider())
+            active.provider = None
+            active.started = fiche.get("started") or active.started
+            active.raw_segments = raw
+            active.diarized_segments = _lire_segments(d / "transcript_diarized.json")
+            active.speaker_names = {str(k): str(v) for k, v in (fiche.get("speaker_names") or {}).items()}
+            if active.diarized_segments is not None:
+                active.diar.status = "DONE"
+            for nom, attribut in (("raw.txt", "raw_txt"), ("raw.srt", "raw_srt"), ("diarized.txt", "diar_txt"),
+                                  ("diarized.srt", "diar_srt")):
+                chemin = d / f"transcript_{session_id}_{nom}"
+                setattr(active, attribut, chemin if chemin.is_file() else None)
+            active._exports_done.set()
+            self.current = active
+            return active.state()
+
+    def delete_session(self, session_id: str) -> None:
+        with self._lock:
+            if self.current and self.current.stamp == session_id:
+                if not self.current.finished or self.current.diar.running:
+                    raise ServiceError("Cette session est en cours.", 409)
+                self.current = None
+            d = self._session_dir(session_id)
+            shutil.rmtree(d, ignore_errors=True)
+            (app_data_dir() / "cache" / f"transcript_{session_id}.txt").unlink(missing_ok=True)
+
+    def open_session_folder(self, session_id: str | None = None) -> None:
+        d = self._session_dir(session_id) if session_id else self._need().live.session_dir
+        try:
+            open_folder(d)
+        except OSError as exc:
+            raise ServiceError(f"Impossible d'ouvrir le dossier : {exc}", 500) from exc
 
     def shutdown(self) -> None:
         """Arrêt propre du serveur : referme le WAV de la session en cours pour qu'il reste lisible."""

@@ -17,7 +17,6 @@ export const DiarizationPanel: React.FC<Props> = ({ etat, cheminPipeline, locute
   const [erreur, setErreur] = React.useState("");
   const [occupe, setOccupe] = React.useState(false);
   const wav = Boolean((etat.files as { wav?: boolean }).wav);
-  const fichiers = etat.files as { diarized_txt?: boolean; diarized_srt?: boolean };
 
   const lancer = async () => {
     setOccupe(true);
@@ -29,35 +28,35 @@ export const DiarizationPanel: React.FC<Props> = ({ etat, cheminPipeline, locute
       {libelle}
     </button>
   );
+  const impossible = !disponible ? "L'identification des intervenants n'est pas incluse dans cette installation."
+    : !wav ? "L'enregistrement audio n'a pas été gardé : les intervenants ne peuvent plus être identifiés."
+    : !cheminPipeline.trim() ? "Indiquez le dossier du modèle d'identification dans les réglages (section Intervenants)." : "";
 
   return (
     <div className="flex flex-col gap-3" aria-live="polite">
       {d.status === "RUNNING" && (
         <Progression fraction={d.fraction}
-          libelle={`Diarisation en cours · ${d.phase}${d.fraction !== null ? ` · ${Math.round(d.fraction * 100)} %` : ""} · écoulé ${duree(d.elapsed)}${d.eta !== null ? ` · reste ~${duree(d.eta)}` : ""}`} />
+          libelle={`Identification des intervenants · ${d.phase}${d.fraction !== null ? ` · ${Math.round(d.fraction * 100)} %` : ""} · ${duree(d.elapsed)} écoulées${d.eta !== null ? ` · reste environ ${duree(d.eta)}` : ""}`} />
       )}
-      {d.status === "IDLE" && d.wanted && <Alerte type="info">La diarisation démarrera à la fin de la transcription.</Alerte>}
+      {d.status === "IDLE" && d.wanted && <Alerte type="info">Les intervenants seront identifiés juste après la transcription.</Alerte>}
       {d.status === "IDLE" && !d.wanted && (
         <>
-          {d.note && <Alerte type="warning">{d.note}</Alerte>}
-          {!d.note && <p className="m-0 text-sm text-ink-muted">Locuteurs non identifiés pour cette session.</p>}
-          {wav && bouton("Identifier les locuteurs maintenant")}
+          <p className="m-0 text-sm text-ink-muted">{d.note ? d.note.replace(/^Diarisation non lancée/, "Intervenants non identifiés") : "Les intervenants n'ont pas été identifiés pour cette session."}</p>
+          {impossible ? <p className="m-0 text-[13px] text-ink-muted">{impossible}</p> : bouton("Identifier les intervenants maintenant")}
         </>
       )}
       {d.status === "DONE" && (
         <>
-          <Alerte type="success">Diarisation terminée : les exports avec locuteurs sont prêts.</Alerte>
-          <div className="flex flex-wrap gap-2">
-            {fichiers.diarized_txt && <a className="nn-btn nn-btn-secondary" href="/api/session/file/diarized_txt?download=true" download>⬇ TXT avec locuteurs</a>}
-            {fichiers.diarized_srt && <a className="nn-btn nn-btn-secondary" href="/api/session/file/diarized_srt?download=true" download>⬇ SRT avec locuteurs</a>}
-            {bouton("Relancer")}
-          </div>
+          <p className="m-0 text-sm text-ink-body">
+            ✓ Intervenants identifiés : choisissez « Avec intervenants » au-dessus du texte, puis donnez-leur un nom.
+          </p>
+          {!impossible && bouton("Recommencer l'identification")}
         </>
       )}
       {d.status === "ERROR" && (
         <>
-          <Alerte type="warning">La diarisation a échoué ; les exports bruts restent intacts. {d.error}</Alerte>
-          {bouton("Relancer la diarisation")}
+          <Alerte type="warning">L'identification des intervenants a échoué ; le texte reste intact. {d.error}</Alerte>
+          {!impossible && bouton("Réessayer")}
         </>
       )}
       {erreur && <Alerte>{erreur}</Alerte>}
@@ -90,10 +89,10 @@ export const Reprise: React.FC<{ cheminPipeline: string; locuteurs: number; disp
   const sorties = etat?.outputs;
   return (
     <details className="nn-card p-5">
-      <summary className="cursor-pointer text-[15px] font-bold text-ink">Reprise : identifier les locuteurs d'une réunion déjà enregistrée</summary>
+      <summary className="cursor-pointer text-[15px] font-bold text-ink">Identifier les intervenants d'un enregistrement existant</summary>
       <div className="mt-4 flex flex-col gap-4">
         <p className="m-0 text-[13px] text-ink-muted">Indiquez les chemins locaux du WAV et du SRT : aucun gros fichier ne passe par le navigateur. Les fichiers « _diarized » sont écrits à côté du WAV.</p>
-        {!disponible && <Alerte type="warning">La diarisation n'est pas incluse dans cette installation.</Alerte>}
+        {!disponible && <Alerte type="warning">L'identification des intervenants n'est pas incluse dans cette installation.</Alerte>}
         <div className="flex flex-col gap-1.5">
           <label htmlFor="reprise-wav" className="text-sm font-medium text-ink">Chemin du WAV</label>
           <input id="reprise-wav" className="nn-input" value={wav} onChange={(e) => setWav(e.target.value)} placeholder="C:\…\recording.wav" spellCheck={false} />
@@ -103,12 +102,12 @@ export const Reprise: React.FC<{ cheminPipeline: string; locuteurs: number; disp
           <input id="reprise-srt" className="nn-input" value={srt} onChange={(e) => setSrt(e.target.value)} placeholder="C:\…\transcript.srt" spellCheck={false} />
         </div>
         <div className="flex flex-col gap-1.5">
-          <label htmlFor="reprise-n" className="text-sm font-medium text-ink">Nombre de locuteurs (0 = comme dans les réglages)</label>
+          <label htmlFor="reprise-n" className="text-sm font-medium text-ink">Nombre d'intervenants (0 = comme dans les réglages)</label>
           <input id="reprise-n" type="number" min={0} max={20} className="nn-input max-w-[160px]" value={n}
             onChange={(e) => setN(Math.max(0, Math.min(20, Math.floor(Number(e.target.value) || 0))))} />
         </div>
         <button type="button" className="nn-btn nn-btn-primary self-start" onClick={lancer}
-          disabled={!disponible || !wav.trim() || !srt.trim() || etat?.status === "RUNNING"}>Identifier les locuteurs</button>
+          disabled={!disponible || !wav.trim() || !srt.trim() || etat?.status === "RUNNING"}>Identifier les intervenants</button>
         {erreur && <Alerte>{erreur}</Alerte>}
         {etat?.status === "RUNNING" && (
           <Progression fraction={etat.fraction} libelle={`${etat.phase}${etat.fraction !== null ? ` · ${Math.round(etat.fraction * 100)} %` : ""} · écoulé ${duree(etat.elapsed)}${etat.eta !== null ? ` · reste ~${duree(etat.eta)}` : ""}`} />

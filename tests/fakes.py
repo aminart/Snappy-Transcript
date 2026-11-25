@@ -32,3 +32,14 @@ class SourceFactice(AudioSource):
             return self.q.get(timeout=timeout)
         except queue.Empty:
             return None
+
+
+class SourceContinue(SourceFactice):
+    """Comme un vrai micro : un bloc de 100 ms toutes les 10 ms (10× le temps réel), sans fin."""
+
+    def read_chunk(self, timeout=0.2):
+        import time
+        if self.arretee:  # comme un micro fermé : plus rien à lire
+            return None
+        time.sleep(0.01)
+        return BLOC
