@@ -2,11 +2,13 @@
 from __future__ import annotations
 
 import importlib.util
+import re
 import sys
+from urllib.parse import quote
 from typing import Any, Literal
 
 from fastapi import APIRouter, Body, Request
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, Field
 
 from .audio.microphone import list_input_devices
@@ -131,6 +133,23 @@ class DemandeDemarrage(BaseModel):
     speaker_hint: int = Field(0, ge=0, le=20)
 
 
+@router.post("/preview")
+def preview_start(body: DemandeDemarrage) -> dict[str, Any]:
+    """Test de la source avant de démarrer ; à rappeler (GET) régulièrement, sinon l'aperçu se ferme seul."""
+    return manager.preview_start(StartParams(**body.model_dump()))
+
+
+@router.get("/preview")
+def preview_level() -> dict[str, Any]:
+    return manager.preview.etat()
+
+
+@router.delete("/preview")
+def preview_stop() -> dict[str, bool]:
+    manager.preview.arreter()
+    return {"ok": True}
+
+
 @router.post("/session/start")
 def start(body: DemandeDemarrage) -> dict[str, Any]:
     return manager.start(StartParams(**body.model_dump()))
@@ -229,6 +248,74 @@ def rename_speakers(body: Noms) -> dict[str, Any]:
     return {"speakers": manager.current.speakers()}
 
 
+def _session():
+    if not manager.current:
+        raise ServiceError("Aucune session.", 404)
+    return manager.current
+
+
+class Titre(BaseModel):
+    title: str = Field("", max_length=300)
+
+
+@router.put("/session/title")
+def set_title(body: Titre) -> dict[str, str]:
+    return {"title": _session().set_title(body.title)}
+
+
+class Marque(BaseModel):
+    label: str = Field("", max_length=300)
+
+
+@router.post("/session/marks")
+def add_mark(body: Marque = Body(default_factory=Marque)) -> dict[str, Any]:
+    """« Marquer ce moment » (touche M) pendant un enregistrement en direct."""
+    return {"marks": manager.mark(body.label)}
+
+
+class ModifMarque(BaseModel):
+    label: str | None = Field(None, max_length=300)  # None : supprimer le moment
+
+
+@router.put("/session/marks/{index}")
+def edit_mark(index: int, body: ModifMarque) -> dict[str, Any]:
+    return {"marks": _session().edit_mark(index, body.label)}
+
+
+class Remplacement(BaseModel):
+    find: str = Field(min_length=1, max_length=300)
+    replace: str = Field("", max_length=300)
+    case: bool = False
+    whole_word: bool = False
+
+
+@router.post("/session/replace")
+def replace_all(body: Remplacement) -> dict[str, Any]:
+    """« Tout remplacer » : dans le texte seul et dans le texte avec intervenants ; annulable une fois."""
+    n = _session().replace_all(body.find, body.replace, body.case, body.whole_word)
+    return {"replaced": n}
+
+
+@router.post("/session/replace/undo")
+def undo_replace() -> dict[str, bool]:
+    _session().undo_replace()
+    return {"ok": True}
+
+
+@router.get("/session/waveform")
+def waveform(n: int = 240) -> dict[str, Any]:
+    return _session().waveform(max(40, min(n, 1200)))
+
+
+@router.get("/session/docx")
+def session_docx() -> Response:
+    """Export Word : titre, moments marqués, puis le texte (avec les noms des intervenants s'ils sont identifiés)."""
+    contenu, titre = _session().docx()
+    nom = re.sub(r'[\\/:*?"<>|]+', "-", titre).strip() or "transcription"
+    return Response(contenu, media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                    headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(nom)}.docx"})
+
+
 @router.post("/session/open-folder")
 def open_current_folder() -> dict[str, bool]:
     manager.open_session_folder()
@@ -238,8 +325,20 @@ def open_current_folder() -> dict[str, bool]:
 # --- Historique ----------------------------------------------------------------------------------------------
 
 @router.get("/history")
-def history() -> dict[str, Any]:
-    return {"sessions": manager.history()}
+def history(q: str = "") -> dict[str, Any]:
+    """Sessions passées ; avec q, seulement celles dont le texte ou le titre le contient (avec un extrait)."""
+    return {"sessions": manager.history(q.strip()[:200])}
+
+
+@router.put("/history/{session_id}/title")
+def history_title(session_id: str, body: Titre) -> dict[str, str]:
+    return manager.set_history_title(session_id, body.title)
+
+
+@router.post("/history/{session_id}/recover")
+def recover(session_id: str) -> dict[str, Any]:
+    """Session interrompue : reconstruit son texte depuis la copie de récupération et la rouvre."""
+    return manager.recover(session_id)
 
 
 @router.post("/history/{session_id}/open")

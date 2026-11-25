@@ -23,7 +23,8 @@ from typing import Any
 from .audio.microphone import MicrophoneSource
 from .audio.system_audio import MixedAudioSource, SystemAudioSource
 from .config import CONFIG
-from .export import segments_to_srt, segments_to_txt
+from .export import segments_to_srt, segments_to_txt, timestamp
+from .apercu import Apercu
 from .file_session import FileTranscription
 from .models import TranscriptSegment
 from .paths import app_data_dir
@@ -136,6 +137,10 @@ class ActiveSession:
         self.diarized_segments: list[TranscriptSegment] | None = None
         self.raw_txt = self.raw_srt = self.diar_txt = self.diar_srt = None
         self.speaker_names: dict[str, str] = {}       # « SPEAKER_00 » → « Marie », repris dans les exports
+        self.title = ""                               # titre donné par la personne (« Comité projet – budget »)
+        self.marks: list[dict[str, Any]] = []         # moments marqués : {"t": secondes, "label": texte choisi ou ""}
+        self._avant_remplacement: tuple | None = None # pour annuler le dernier « Tout remplacer »
+        self._onde: tuple[float, list[float], float] | None = None
         self.started = time.strftime("%Y-%m-%dT%H:%M:%S")
         self._exports_done = threading.Event()
         self._lock = threading.RLock()
@@ -195,6 +200,7 @@ class ActiveSession:
                 _write(d / "transcript_diarized.json",
                        json.dumps([segment_to_dict(s, True) for s in self.diarized_segments], ensure_ascii=False))
             fiche = {"format": 1, "id": self.stamp, "kind": getattr(self.live, "kind", "live"),
+                     "title": self.title, "marks": self.marks_view(),
                      "name": getattr(self.live, "display_name", None), "started": self.started,
                      "duration": round(self.live.duration, 1), "language": self.params.language,
                      "segments": len(self.raw_segments or []), "diarized": self.diarized_segments is not None,
@@ -240,6 +246,124 @@ class ActiveSession:
             self.speaker_names = nouveaux
             self.save()
             return self.speaker_names
+
+    # -- titre, moments marqués, rechercher / remplacer -------------------------------------------------------
+
+    def set_title(self, title: str) -> str:
+        with self._lock:
+            self.title = " ".join((title or "").split())[:120]
+            if self.raw_segments is not None:
+                self.save()
+            return self.title
+
+    def _texte_au_moment(self, t: float) -> str:
+        """La phrase prononcée au moment marqué (la dernière commencée avant), pour nommer le moment."""
+        segs = self.raw_segments if self.raw_segments is not None else self.live.segments()
+        avant = [x for x in segs if x.start <= t + 0.5]
+        if not avant:
+            return ""
+        texte = avant[-1].text
+        return texte if len(texte) <= 90 else texte[:90].rsplit(" ", 1)[0] + "…"
+
+    def marks_view(self) -> list[dict[str, Any]]:
+        return [{"t": m["t"], "label": m["label"] or self._texte_au_moment(m["t"]), "named": bool(m["label"])} for m in self.marks]
+
+    def add_mark(self, label: str = "") -> list[dict[str, Any]]:
+        with self._lock:
+            if self.finished or self.live.stop_requested or getattr(self.live, "kind", "live") != "live":
+                raise ServiceError("On ne marque un moment que pendant un enregistrement en direct.", 409)
+            t = round(self.live.duration, 1)
+            if self.marks and t - self.marks[-1]["t"] < 2:  # double appui sur M
+                return self.marks_view()
+            self.marks.append({"t": t, "label": " ".join((label or "").split())[:120]})
+            return self.marks_view()
+
+    def edit_mark(self, index: int, label: str | None) -> list[dict[str, Any]]:
+        """label None : supprime le moment ; "" : revient au nom automatique."""
+        with self._lock:
+            if not 0 <= index < len(self.marks):
+                raise ServiceError("Ce moment n'existe plus.", 404)
+            if label is None:
+                self.marks.pop(index)
+            else:
+                self.marks[index]["label"] = " ".join(label.split())[:120]
+            if self.raw_segments is not None:
+                self.save()
+            return self.marks_view()
+
+    def replace_all(self, find: str, by: str, case: bool, whole_word: bool) -> int:
+        """Remplace partout (texte seul et texte avec intervenants) ; le dernier remplacement peut être annulé."""
+        from dataclasses import replace
+        from .documents import motif, remplacer
+        if not find.strip():
+            raise ServiceError("Indiquez le texte à rechercher.", 422)
+        with self._lock:
+            self._editable("raw")
+            if self.diar.running:
+                raise ServiceError("Attendez la fin de l'identification des intervenants.", 409)
+            m = motif(find, case, whole_word)
+            avant = (list(self.raw_segments or []), list(self.diarized_segments) if self.diarized_segments is not None else None)
+            total = 0
+
+            def appliquer(segs: list[TranscriptSegment]) -> tuple[list[TranscriptSegment], int]:
+                out, n = [], 0
+                for x in segs:
+                    texte, k = remplacer(x.text, m, by)
+                    texte = " ".join(texte.split())
+                    if k and texte:
+                        out.append(replace(x, text=texte, words=()))
+                        n += k
+                    else:
+                        out.append(x)
+                return out, n
+
+            self.raw_segments, total = appliquer(self.raw_segments or [])
+            if self.diarized_segments is not None:
+                self.diarized_segments, n = appliquer(self.diarized_segments)
+                total = max(total, n)
+            if total:
+                self._avant_remplacement = avant
+                self.save()
+            return total
+
+    def undo_replace(self) -> None:
+        with self._lock:
+            if not self._avant_remplacement:
+                raise ServiceError("Rien à annuler.", 409)
+            self.raw_segments, self.diarized_segments = self._avant_remplacement
+            self._avant_remplacement = None
+            self.save()
+
+    def docx(self) -> tuple[bytes, str]:
+        from .documents import segments_to_docx
+        if not self.finished:
+            raise ServiceError("La session n'est pas terminée.", 409)
+        segs = self.named(self.diarized_segments) if self.diarized_segments is not None else (self.raw_segments or [])
+        titre = self.title or self.default_title()
+        infos = [self.started.replace("T", " à ")[:-3].replace("-", "/") if self.started else "",
+                 f"durée {timestamp(self.live.duration)}"]
+        noms = sorted({x.speaker for x in segs if x.speaker})
+        if noms:
+            infos.append(f"intervenants : {', '.join(noms)}")
+        return segments_to_docx(segs, titre, " · ".join(i for i in infos if i), self.marks_view()), titre
+
+    def default_title(self) -> str:
+        nom = getattr(self.live, "display_name", None)
+        if nom:
+            return str(nom)
+        j, h = self.stamp.split("_")[0], self.stamp.split("_")[1]
+        return f"Enregistrement du {j[8:10]}/{j[5:7]}/{j[:4]} à {h[:5].replace('-', ':')}"
+
+    def waveform(self, n: int = 240) -> dict[str, Any]:
+        from .documents import forme_onde
+        wav = self.live.wav_path
+        if not self.finished or not wav.is_file():
+            raise ServiceError("Pas d'enregistrement audio pour cette session.", 404)
+        cle = wav.stat().st_mtime
+        if not self._onde or self._onde[0] != cle or len(self._onde[1]) != n:
+            peaks, duree = forme_onde(wav, n)
+            self._onde = (cle, peaks, duree)
+        return {"peaks": self._onde[1], "duration": round(self._onde[2], 2)}
 
     def speakers(self) -> list[dict[str, Any]]:
         if self.diarized_segments is None:
@@ -326,6 +450,8 @@ class ActiveSession:
             "save_audio": self.params.save_audio,
             "speakers": self.speakers() if self.finished else [],
             "archived": isinstance(live, ArchivedLive),
+            "title": self.title, "default_title": self.default_title(), "started": self.started,
+            "marks": self.marks_view(), "can_undo": self._avant_remplacement is not None,
         }
 
     def transcript(self, variant: str) -> list[dict[str, Any]]:
@@ -467,6 +593,7 @@ class Manager:
     def __init__(self) -> None:
         self.current: ActiveSession | None = None
         self.posthoc = PosthocJob()
+        self.preview = Apercu()
         self._lock = threading.RLock()
 
     # -- sessions ------------------------------------------------------------------------------------------------
@@ -499,21 +626,37 @@ class Manager:
         except (ValueError, RuntimeError) as exc:
             raise ServiceError(str(exc), 422) from exc
 
-    def _source(self, p: StartParams):
+    def _sources(self, p: StartParams) -> dict[str, Any]:
+        """Les sources séparées : « voix » (micro) et / ou « autre » (application ou tout le son du PC)."""
         rate, block = CONFIG.sample_rate, CONFIG.block_ms
-        mic = system = None
+        out: dict[str, Any] = {}
         if p.source in ("microphone", "mixed"):
             if p.input_device is None:
                 raise ServiceError("Aucun microphone sélectionné.", 422)
-            mic = MicrophoneSource(device=p.input_device, sample_rate=rate, channels=1, block_ms=block)
+            out["voix"] = MicrophoneSource(device=p.input_device, sample_rate=rate, channels=1, block_ms=block)
         if p.source in ("system", "mixed"):
-            system = self._app_source(p.app, rate, block) if p.app.strip() else \
+            out["autre"] = self._app_source(p.app, rate, block) if p.app.strip() else \
                 SystemAudioSource(p.output_device or None, sample_rate=rate, channels=1, block_ms=block)
-        if p.source == "microphone":
-            return mic
-        if p.source == "system":
-            return system
-        return MixedAudioSource(mic, system, sample_rate=rate, block_ms=block)
+        return out
+
+    def preview_start(self, p: StartParams) -> dict[str, Any]:
+        """Ouvre la ou les sources sans rien enregistrer, pour vérifier qu'on entend bien avant de démarrer."""
+        with self._lock:
+            if self.current and not self.current.finished:
+                raise ServiceError("Une session est en cours.", 409)
+            if p.source not in ("microphone", "system", "mixed"):
+                raise ServiceError("Source inconnue.", 422)
+            cle = (p.source, p.input_device, p.output_device, p.app)
+            try:
+                return self.preview.demarrer(cle, lambda: self._sources(p))
+            except OSError as exc:
+                raise ServiceError(f"Impossible d'ouvrir la source audio : {exc}", 422) from exc
+
+    def _source(self, p: StartParams):
+        sources = self._sources(p)
+        if len(sources) == 1:
+            return next(iter(sources.values()))
+        return MixedAudioSource(sources["voix"], sources["autre"], sample_rate=CONFIG.sample_rate, block_ms=CONFIG.block_ms)
 
     @staticmethod
     def _app_source(exe: str, rate: int, block: int):
@@ -562,6 +705,7 @@ class Manager:
             if p.source not in ("microphone", "system", "mixed") or p.engine not in ("local", "mock"):
                 raise ServiceError("Source ou moteur inconnu.", 422)
             provider = self._provider(p)
+            self.preview.arreter()  # le micro ne doit pas être ouvert deux fois
             source = self._source(p)
             stamp = self._new_stamp()
             live = LiveSession(source, provider, p.chunk_seconds, p.language, p.save_audio,
@@ -632,9 +776,11 @@ class Manager:
 
     # -- historique ------------------------------------------------------------------------------------------------
 
-    def history(self) -> list[dict[str, Any]]:
+    def history(self, q: str = "") -> list[dict[str, Any]]:
         """Sessions enregistrées, de la plus récente à la plus ancienne. Une session sans fiche (application fermée
-        pendant l'enregistrement) apparaît comme interrompue : son WAV et sa copie de récupération restent."""
+        pendant l'enregistrement) apparaît comme interrompue : son WAV et sa copie de récupération restent.
+        Avec q : seulement celles dont le texte ou le titre contient q (accents et majuscules ignorés), avec l'extrait."""
+        from .documents import compter, duree_wav, extrait
         courant = self.current.stamp if self.current else None
         sorties = []
         try:
@@ -653,14 +799,80 @@ class Manager:
                 copie = app_data_dir() / "cache" / f"transcript_{d.name}.txt"
                 if not wav.is_file() and not copie.is_file():
                     continue
-                sorties.append({"id": d.name, "interrupted": True, "kind": "live", "name": None, "duration": None,
-                                "segments": None, "diarized": False, "audio": wav.is_file(), "current": False})
+                texte = copie.read_text(encoding="utf-8", errors="replace") if copie.is_file() else ""
+                ex = extrait(re.sub(r"\[\d+:\d\d:\d\d\]\s?", " ", texte), q)
+                if q and ex is None:
+                    continue
+                sorties.append({"id": d.name, "interrupted": True, "kind": "live", "name": None, "title": "",
+                                "duration": duree_wav(wav) if wav.is_file() else None, "segments": None,
+                                "diarized": False, "audio": wav.is_file(), "current": False, "recoverable": copie.is_file(),
+                                "excerpt": ex, "matches": compter(texte, q), "speakers": [], "unnamed": 0, "marks": 0})
                 continue
+            raw = _lire_segments(d / "transcript_raw.json") or []
+            diar = _lire_segments(d / "transcript_diarized.json")
+            texte = " ".join(x.text for x in raw)
+            titre = str(fiche.get("title") or "")
+            ex = extrait(texte, q)
+            if q and ex is None and compter(titre, q) == 0:
+                continue
+            noms = {str(k): str(v) for k, v in (fiche.get("speaker_names") or {}).items()}
+            etiquettes = sorted({x.speaker for x in diar or [] if x.speaker})
             sorties.append({"id": d.name, "interrupted": False, "kind": fiche.get("kind"), "name": fiche.get("name"),
-                            "started": fiche.get("started"), "duration": fiche.get("duration"),
+                            "title": titre, "started": fiche.get("started"), "duration": fiche.get("duration"),
                             "segments": fiche.get("segments"), "diarized": bool(fiche.get("diarized")),
-                            "audio": wav.is_file(), "error": fiche.get("error") or "", "current": d.name == courant})
+                            "audio": wav.is_file(), "error": fiche.get("error") or "", "current": d.name == courant,
+                            "excerpt": ex or extrait(texte), "matches": compter(texte, q) + compter(titre, q),
+                            "speakers": [noms[e] for e in etiquettes if e in noms],
+                            "unnamed": sum(1 for e in etiquettes if e not in noms),
+                            "marks": len(fiche.get("marks") or [])})
         return sorties
+
+    def set_history_title(self, session_id: str, title: str) -> dict[str, Any]:
+        """Renomme une session depuis « Mes transcriptions » (ou la session ouverte, si c'est elle)."""
+        with self._lock:
+            if self.current and self.current.stamp == session_id:
+                return {"title": self.current.set_title(title)}
+            d = self._session_dir(session_id)
+            chemin = d / SESSION_FILE
+            try:
+                fiche = json.loads(chemin.read_text(encoding="utf-8"))
+            except (OSError, ValueError) as exc:
+                raise ServiceError("Récupérez d'abord le texte de cette session.", 409) from exc
+            fiche["title"] = " ".join((title or "").split())[:120]
+            _write(chemin, json.dumps(fiche, ensure_ascii=False, indent=2))
+            return {"title": fiche["title"]}
+
+    def recover(self, session_id: str) -> dict[str, Any]:
+        """Session interrompue : reconstruit sa fiche et son texte depuis la copie de récupération, puis la rouvre."""
+        from .documents import duree_wav, lire_copie
+        with self._lock:
+            self._check_free()
+            d = self._session_dir(session_id)
+            if (d / SESSION_FILE).is_file():
+                return self.reopen(session_id)
+            copie = app_data_dir() / "cache" / f"transcript_{session_id}.txt"
+            if not copie.is_file():
+                raise ServiceError("Aucune copie du texte pour cette session : seul son audio a été conservé.", 409)
+            wav = d / f"recording_{session_id}.wav"
+            duree = duree_wav(wav) if wav.is_file() else None
+            segments = lire_copie(copie.read_text(encoding="utf-8", errors="replace"), duree)
+            if not segments:
+                raise ServiceError("La copie du texte de cette session est vide.", 409)
+            duree = duree or segments[-1].end
+            _write(d / "transcript_raw.json", json.dumps([segment_to_dict(x, True) for x in segments], ensure_ascii=False))
+            stamp = session_id
+            _write(d / f"transcript_{stamp}_raw.txt", segments_to_txt(segments))
+            _write(d / f"transcript_{stamp}_raw.srt", segments_to_srt(segments))
+            j, h = stamp.split("_")[0], stamp.split("_")[1]
+            fiche = {"format": 1, "id": stamp, "kind": "live", "title": "", "marks": [], "name": None,
+                     "started": f"{j}T{h[:8].replace('-', ':')}", "duration": round(duree, 1), "language": "fr",
+                     "segments": len(segments), "diarized": False, "speaker_names": {},
+                     "error": "Texte récupéré après une fermeture inattendue : les dernières secondes peuvent manquer."}
+            _write(d / SESSION_FILE, json.dumps(fiche, ensure_ascii=False, indent=2))
+            return self.reopen(session_id)
+
+    def mark(self, label: str = "") -> list[dict[str, Any]]:
+        return self._need().add_mark(label)
 
     def _session_dir(self, session_id: str) -> Path:
         if not re.fullmatch(r"[0-9]{4}-[0-9]{2}-[0-9]{2}_[0-9]{2}-[0-9]{2}-[0-9]{2}(-[0-9]+)?", session_id or ""):
@@ -691,6 +903,9 @@ class Manager:
             active.raw_segments = raw
             active.diarized_segments = _lire_segments(d / "transcript_diarized.json")
             active.speaker_names = {str(k): str(v) for k, v in (fiche.get("speaker_names") or {}).items()}
+            active.title = str(fiche.get("title") or "")
+            active.marks = [{"t": float(m["t"]), "label": str(m.get("label") or "") if m.get("named") else ""}
+                            for m in fiche.get("marks") or [] if isinstance(m, dict) and "t" in m]
             if active.diarized_segments is not None:
                 active.diar.status = "DONE"
             for nom, attribut in (("raw.txt", "raw_txt"), ("raw.srt", "raw_srt"), ("diarized.txt", "diar_txt"),
