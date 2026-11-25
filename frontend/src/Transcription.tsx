@@ -178,6 +178,56 @@ const Diagnostic: React.FC<{ etat: SessionState }> = ({ etat }) => {
   );
 };
 
+const MODES: { id: Mode; titre: string; detail: string; icone: React.ReactNode }[] = [
+  {
+    id: "live", titre: "En direct", detail: "Micro ou son du PC, pendant une réunion",
+    icone: <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+      <rect x="9" y="3" width="6" height="11" rx="3" /><path d="M5 11a7 7 0 0 0 14 0M12 18v3" /></svg>,
+  },
+  {
+    id: "file", titre: "Depuis un fichier", detail: "Un enregistrement audio ou une vidéo",
+    icone: <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" /><path d="M14 3v5h5M10 17v-5l4 2.5z" /></svg>,
+  },
+];
+
+/** Premier choix de la page : grand sélecteur à deux options (groupe de boutons radio, flèches gauche / droite). */
+const ChoixMode: React.FC<{ mode: Mode; changer: (m: Mode) => void; bloque: boolean }> = ({ mode, changer, bloque }) => {
+  const boutons = React.useRef<(HTMLButtonElement | null)[]>([]);
+  const clavier = (e: React.KeyboardEvent, i: number) => {
+    if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(e.key) || bloque) return;
+    e.preventDefault();
+    const j = (i + (e.key === "ArrowLeft" || e.key === "ArrowUp" ? -1 : 1) + MODES.length) % MODES.length;
+    changer(MODES[j].id);
+    boutons.current[j]?.focus();
+  };
+  return (
+    <div role="radiogroup" aria-label="Que voulez-vous transcrire ?"
+      title={bloque ? "Terminez la session en cours pour changer" : undefined}
+      className="mt-5 grid w-full max-w-[760px] grid-cols-2 gap-1.5 rounded-lg border border-line bg-surface-2 p-1.5">
+      {MODES.map((m, i) => {
+        const actif = mode === m.id;
+        return (
+          <button key={m.id} ref={(el) => { boutons.current[i] = el; }} type="button" role="radio" aria-checked={actif}
+            tabIndex={actif ? 0 : -1} disabled={bloque && !actif} onClick={() => !bloque && changer(m.id)} onKeyDown={(e) => clavier(e, i)}
+            className={`flex min-w-0 items-center gap-3 rounded-md border px-3 py-3 text-left transition-colors sm:px-4
+              focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus
+              ${actif ? "border-accent bg-surface text-ink shadow-sm" : "border-transparent bg-transparent text-ink-muted hover:bg-surface-3"}
+              disabled:cursor-not-allowed disabled:opacity-50`}>
+            <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-md ${actif ? "bg-accent-soft text-accent" : "bg-surface-3 text-ink-subtle"}`}>
+              {m.icone}
+            </span>
+            <span className="flex min-w-0 flex-col">
+              <span className={`text-[16px] font-semibold leading-tight ${actif ? "text-ink" : "text-ink-body"}`}>{m.titre}</span>
+              <span className="mt-0.5 hidden text-[13px] leading-snug text-ink-muted sm:block">{m.detail}</span>
+            </span>
+          </button>
+        );
+      })}
+    </div>
+  );
+};
+
 const SVG = { width: 16, height: 16, viewBox: "0 0 24 24", fill: "currentColor", "aria-hidden": true } as const;
 const IconeLecture = () => <svg {...SVG}><path d="M7 4.5v15l12.5-7.5z" /></svg>;
 const IconePause = () => <svg {...SVG}><rect x="6" y="4.5" width="4" height="15" rx="1" /><rect x="14" y="4.5" width="4" height="15" rx="1" /></svg>;
@@ -351,17 +401,11 @@ export const Transcription: React.FC = () => {
       <p className="sr-only" aria-live="polite">{annonce}</p>
       <div className="nn-page-head">
         <div>
-          <h1 className="nn-page-title">{modeFichier ? "Transcrire un fichier" : "Transcription en direct"}</h1>
-          <p className="nn-page-subtitle">
-            {modeFichier ? "Un enregistrement audio ou une vidéo, dans son format d'origine. " : "Du micro ou du son du PC au texte. "}
-            Tout reste sur cet ordinateur.
-          </p>
-        </div>
-        <div className="nn-segmented" role="group" aria-label="Que transcrire ?">
-          <button type="button" aria-pressed={!modeFichier} disabled={occupe || demarrage} onClick={() => changerMode("live")}>En direct</button>
-          <button type="button" aria-pressed={modeFichier} disabled={occupe || demarrage} onClick={() => changerMode("file")}>Depuis un fichier</button>
+          <h1 className="nn-page-title">Transcription</h1>
+          <p className="nn-page-subtitle">Tout reste sur cet ordinateur : aucun son ne quitte le poste.</p>
         </div>
       </div>
+      <ChoixMode mode={r.mode} changer={changerMode} bloque={occupe || demarrage} />
 
       <div className="mt-6 grid items-start gap-6 lg:grid-cols-[360px_minmax(0,1fr)]">
         <aside aria-label="Réglages" className="order-2 lg:sticky lg:top-[76px] lg:order-none lg:max-h-[calc(100vh-6rem)] lg:overflow-y-auto lg:pr-1"
