@@ -2,11 +2,17 @@
 setlocal
 rem Installe Snappy Transcript pour le tester sur ce poste (une seule fois, puis start.bat).
 rem   install.bat                               installation normale
+rem   install.bat intervenants                  + identification des intervenants (PyTorch, pyannote : plus de 1 Go)
 rem   install.bat "C:\...\companyCA.crt"        derriere le proxy de l'entreprise (certificat)
+rem Les options se combinent : install.bat intervenants "C:\...\companyCA.crt"
 rem Prerequis : Python 3.11+ et Node.js 20+ dans le PATH.
 cd /d "%~dp0"
 
-set "CERT=%~1"
+set "CERT="
+set "AVEC_INTERVENANTS="
+for %%A in (%*) do (
+    if /I "%%~A"=="intervenants" (set "AVEC_INTERVENANTS=1") else set "CERT=%%~A"
+)
 set "PIP_CERT_OPT="
 if not "%CERT%"=="" (
     if not exist "%CERT%" (
@@ -35,6 +41,8 @@ echo [2/3] Dependances Python (transcription comprise, quelques minutes la premi
 .venv\Scripts\python.exe -m pip install --upgrade pip %PIP_CERT_OPT% >nul
 .venv\Scripts\python.exe -m pip install -r requirements-dev.txt %PIP_CERT_OPT%
 if errorlevel 1 goto :erreur
+if defined AVEC_INTERVENANTS call :intervenants
+if errorlevel 1 goto :erreur
 
 echo [3/3] Interface...
 pushd frontend
@@ -53,9 +61,15 @@ popd
 echo.
 echo Installation terminee. Lancez start.bat pour ouvrir Snappy Transcript.
 echo Sans modele de transcription : Reglages avances, Moteur "Simulation".
+if not defined AVEC_INTERVENANTS echo Pour identifier les intervenants : install.bat intervenants
 echo.
 pause
 exit /b 0
+
+:intervenants
+echo [2b] Identification des intervenants : PyTorch et pyannote, plus de 1 Go, plusieurs minutes...
+.venv\Scripts\python.exe -m pip install -r backend\requirements-diarization.txt %PIP_CERT_OPT%
+exit /b %errorlevel%
 
 :erreur
 echo.
