@@ -114,9 +114,20 @@ export interface SessionState {
   recovery_copy: string;
   save_audio: boolean;
   speakers: Intervenant[];
-  /** Session rouverte depuis l'historique. */
+  /** Session rouverte depuis « Mes transcriptions ». */
   archived: boolean;
+  title: string;
+  default_title: string;
+  started: string;
+  marks: Marque[];
+  /** Le dernier « Tout remplacer » peut être annulé. */
+  can_undo: boolean;
 }
+
+/** Moment marqué : t en secondes ; label choisi, ou la phrase prononcée à ce moment (named = false). */
+export interface Marque { t: number; label: string; named: boolean }
+
+export interface Extrait { before: string; match: string; after: string }
 
 export interface Intervenant { label: string; name: string; seconds: number }
 
@@ -134,4 +145,11 @@ export interface SessionPassee {
   audio: boolean;
   error?: string;
   current: boolean;
+  title: string;
+  recoverable?: boolean;
+  excerpt: Extrait | null;
+  matches: number;
+  speakers: string[];
+  unnamed: number;
+  marks: number;
 }
