@@ -1,13 +1,13 @@
 from __future__ import annotations
 import os
-from pathlib import Path
 from models.transcript import TranscriptSegment
 from utils.export import segments_to_txt
+from utils.paths import app_data_dir
 
 class TranscriptCache:
     """Crash-resistant local text cache. Each update is atomic (tmp -> replace)."""
     def __init__(self, session_id: str):
-        root = Path(os.environ.get('LOCALAPPDATA', Path.home())) / 'AudioTranscriber' / 'cache'
+        root = app_data_dir() / 'cache'
         root.mkdir(parents=True, exist_ok=True)
         self.path = root / f'transcript_{session_id}.txt'
         self.tmp_path = root / f'.transcript_{session_id}.tmp'

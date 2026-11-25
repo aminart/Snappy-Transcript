@@ -6,9 +6,10 @@ import tempfile
 import threading
 from pathlib import Path
 
-# Paramètres propres à la distribution portable.
+# Distribution portable : le dossier « settings » est à côté du dossier de l'application. AUDIO_TRANSCRIBER_SETTINGS
+# le remplace (utile quand l'application est lancée depuis un clone GitHub, où ce dossier parent n'est pas à nous).
 RELEASE_DIR = Path(__file__).resolve().parents[2]
-SETTINGS_DIR = RELEASE_DIR / "settings"
+SETTINGS_DIR = Path(os.environ["AUDIO_TRANSCRIBER_SETTINGS"]).expanduser() if os.environ.get("AUDIO_TRANSCRIBER_SETTINGS") else RELEASE_DIR / "settings"
 SETTINGS_FILE = SETTINGS_DIR / "user_settings.json"
 
 _WRITE_LOCK = threading.RLock()
