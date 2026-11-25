@@ -12,7 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 def donnees_isolees(tmp_path, monkeypatch):
     """Sessions, cache et réglages écrits dans un dossier temporaire, jamais dans le profil de l'utilisateur."""
     monkeypatch.setenv("SNAPPY_DATA", str(tmp_path / "data"))
-    from snappy.service import manager
-    manager.current = None
+    from snappy.service import ModeleCharge, manager
+    manager.current, manager.modele = None, ModeleCharge()
     yield
     manager.current = None

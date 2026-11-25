@@ -133,6 +133,22 @@ class DemandeDemarrage(BaseModel):
     speaker_hint: int = Field(0, ge=0, le=20)
 
 
+class Prechargement(BaseModel):
+    model_path: str = ""
+    acceleration: Literal["auto", "gpu", "cpu"] = "auto"
+
+
+@router.post("/model/preload")
+def preload(body: Prechargement) -> dict[str, Any]:
+    """Charge le modèle en arrière-plan (appelé à l'ouverture de la page) ; GET pour suivre."""
+    return manager.preload(body.model_path, body.acceleration)
+
+
+@router.get("/model/preload")
+def preload_state() -> dict[str, Any]:
+    return manager.modele.as_dict()
+
+
 @router.post("/preview")
 def preview_start(body: DemandeDemarrage) -> dict[str, Any]:
     """Test de la source avant de démarrer ; à rappeler (GET) régulièrement, sinon l'aperçu se ferme seul."""
@@ -296,10 +312,11 @@ def replace_all(body: Remplacement) -> dict[str, Any]:
     return {"replaced": n}
 
 
+@router.post("/session/undo")
 @router.post("/session/replace/undo")
-def undo_replace() -> dict[str, bool]:
-    _session().undo_replace()
-    return {"ok": True}
+def undo() -> dict[str, str]:
+    """Ctrl+Z : annule la dernière correction ou le dernier « Tout remplacer » (20 étapes)."""
+    return {"undone": _session().undo()}
 
 
 @router.get("/session/waveform")
@@ -327,12 +344,30 @@ def open_current_folder() -> dict[str, bool]:
 @router.get("/history")
 def history(q: str = "") -> dict[str, Any]:
     """Sessions passées ; avec q, seulement celles dont le texte ou le titre le contient (avec un extrait)."""
-    return {"sessions": manager.history(q.strip()[:200])}
+    sessions = manager.history(q.strip()[:200])
+    tout = manager.history() if q.strip() else sessions
+    return {"sessions": sessions, "count": len(tout), "size": sum(x["size"] for x in tout),
+            "audio_size": sum(x["audio_size"] for x in tout)}
 
 
 @router.put("/history/{session_id}/title")
 def history_title(session_id: str, body: Titre) -> dict[str, str]:
     return manager.set_history_title(session_id, body.title)
+
+
+@router.delete("/history/{session_id}/audio")
+def delete_audio(session_id: str) -> dict[str, int]:
+    """Supprime l'audio d'une session (on ne pourra plus la réécouter ni identifier ses intervenants)."""
+    return {"freed": manager.delete_audio(session_id)}
+
+
+class Purge(BaseModel):
+    days: int = Field(ge=0, le=3650)
+
+
+@router.post("/history/purge-audio")
+def purge_audio(body: Purge) -> dict[str, int]:
+    return manager.purge_audio(body.days)
 
 
 @router.post("/history/{session_id}/recover")

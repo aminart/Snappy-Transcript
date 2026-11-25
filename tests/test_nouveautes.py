@@ -168,3 +168,120 @@ def test_lire_copie_ignore_les_lignes_vides():
     assert lire_copie("\n[00:01:00]  \nbruit\n[01:00:00] Fin", duree=3605) [0].end == 3605
     assert len(lire_copie("")) == 0
     assert BLOC  # import gardé pour les sources factices
+
+
+# --- point 2 : modèle préchargé, corrections reportées, annuler, place sur le disque ---------------------------
+
+def _faux_modele(tmp_path, monkeypatch, delai=0.3):
+    modele = tmp_path / "modele"
+    modele.mkdir()
+    for nom in ("config.json", "model.bin", "tokenizer.json"):
+        (modele / nom).write_text("{}")
+    crees = []
+
+    class Faux:
+        device, compute_type = "cpu", "int8"
+
+        def __init__(self, chemin, acceleration="auto", **_):
+            time.sleep(delai)  # le chargement d'un vrai modèle prend plusieurs secondes
+            crees.append((chemin, acceleration))
+
+        def configure(self, vad_filter, glossary):
+            self.glossary = glossary
+
+        def transcribe(self, pcm, sample_rate, offset, language):
+            return []
+    monkeypatch.setattr("snappy.transcription.whisper.LocalWhisperProvider", Faux)
+    return str(modele), crees
+
+
+def test_modele_precharge_puis_reutilise(client, tmp_path, monkeypatch):
+    chemin, crees = _faux_modele(tmp_path, monkeypatch)
+    e = client.post("/api/model/preload", json={"model_path": chemin}).json()
+    assert e["state"] == "loading"
+    client.post("/api/model/preload", json={"model_path": chemin})  # rappel : pas de second chargement
+    fin = time.monotonic() + 3
+    while client.get("/api/model/preload").json()["state"] != "ready" and time.monotonic() < fin:
+        time.sleep(0.05)
+    assert client.get("/api/model/preload").json() == {"state": "ready", "message": "", "device": "CPU · int8"}
+    for glossaire in ("Traceline", "Jabber"):  # deux sessions de suite : toujours le même modèle, réglages à jour
+        r = client.post("/api/session/start", json={**DEMARRAGE, "engine": "local", "model_path": chemin, "glossary": glossaire})
+        assert r.status_code == 200
+        assert manager.current.provider.glossary == glossaire
+        client.post("/api/session/stop")
+        attendre(client, lambda e: e["finalized"])
+        client.delete("/api/session")
+    assert crees == [(chemin, "auto")]
+    client.post("/api/model/preload", json={"model_path": chemin, "acceleration": "cpu"})  # autre réglage : rechargé
+    manager.modele.obtenir((chemin, "cpu"))
+    assert crees == [(chemin, "auto"), (chemin, "cpu")]
+
+
+def test_demarrer_pendant_le_prechargement_attend_le_modele(client, tmp_path, monkeypatch):
+    chemin, crees = _faux_modele(tmp_path, monkeypatch, delai=0.8)
+    client.post("/api/model/preload", json={"model_path": chemin})
+    assert client.post("/api/session/start", json={**DEMARRAGE, "engine": "local", "model_path": chemin}).status_code == 200
+    assert len(crees) == 1
+    client.post("/api/session/stop")
+
+
+def test_preload_modele_absent(client, tmp_path):
+    r = client.post("/api/model/preload", json={"model_path": str(tmp_path / "absent")})
+    assert r.status_code == 422
+
+
+def test_correction_reportee_dans_les_deux_textes_puis_annulee(client, monkeypatch):
+    from snappy.models import TranscriptSegment, TranscriptWord
+    session_terminee(client)
+    s = manager.current
+    raw = s.raw_segments
+    origine = raw[0].text
+    # une phrase du texte seul découpée en deux répliques, les autres en une seule
+    r0 = raw[0]
+    milieu = (r0.start + r0.end) / 2
+    s.diarized_segments = [TranscriptSegment(r0.start, milieu, "Bonjour à tous", "SPEAKER_00", (TranscriptWord(r0.start, milieu, "x"),)),
+                           TranscriptSegment(milieu, r0.end, "et bienvenue", "SPEAKER_01", ())] + \
+                          [TranscriptSegment(x.start, x.end, x.text, "SPEAKER_00", ()) for x in raw[1:]]
+    s.diar.status = "DONE"
+    client.put("/api/session/segment", json={"variant": "diarized", "index": 1, "text": "et bienvenue à Traceline"})
+    texte = lambda v: [x["text"] for x in client.get("/api/session/transcript", params={"variant": v}).json()["segments"]]  # noqa: E731
+    assert texte("raw")[0] == "Bonjour à tous et bienvenue à Traceline"  # la phrase d'origine est refaite
+    client.put("/api/session/segment", json={"variant": "raw", "index": 1, "text": "Deuxième phrase corrigée"})
+    assert texte("diarized")[2] == "Deuxième phrase corrigée"  # une seule réplique : reportée
+    client.put("/api/session/segment", json={"variant": "raw", "index": 0, "text": "Phrase coupée en deux"})
+    assert texte("diarized")[:2] == ["Bonjour à tous", "et bienvenue à Traceline"]  # deux répliques : pas de report
+
+    etat = client.get("/api/session").json()
+    assert etat["can_undo"] and etat["undo_label"] == "la correction"
+    assert client.post("/api/session/undo").json() == {"undone": "la correction"}
+    assert texte("raw")[0] == "Bonjour à tous et bienvenue à Traceline"
+    client.post("/api/session/undo")
+    client.post("/api/session/undo")
+    assert texte("raw")[0] == origine and texte("diarized")[1] == "et bienvenue"
+    assert client.post("/api/session/undo").status_code == 409
+
+
+def test_place_sur_le_disque_et_suppression_de_l_audio(client):
+    fin = session_terminee(client)
+    sid = fin["id"]
+    client.delete("/api/session")
+    h = client.get("/api/history").json()
+    assert h["count"] == 1 and h["audio_size"] > 100_000 and h["size"] > h["audio_size"]
+    assert h["sessions"][0]["audio"]
+    assert client.post("/api/history/purge-audio", json={"days": 30}).json() == {"freed": 0, "count": 0}  # trop récente
+    r = client.post("/api/history/purge-audio", json={"days": 0}).json()
+    assert r["count"] == 1 and r["freed"] == h["audio_size"]
+    h2 = client.get("/api/history").json()
+    assert h2["audio_size"] == 0 and not h2["sessions"][0]["audio"]
+    e = client.post(f"/api/history/{sid}/open").json()
+    assert not e["files"]["wav"] and e["files"]["raw_txt"]  # le texte reste
+    assert client.delete(f"/api/history/{sid}/audio").json() == {"freed": 0}
+
+
+def test_audio_d_une_session_interrompue_protege(client):
+    sid = "2026-01-02_03-04-05"
+    d = sessions_dir() / sid
+    d.mkdir(parents=True)
+    (d / f"recording_{sid}.wav").write_bytes(b"RIFF")
+    assert client.delete(f"/api/history/{sid}/audio").status_code == 409
+    assert client.post("/api/history/purge-audio", json={"days": 0}).json()["count"] == 0

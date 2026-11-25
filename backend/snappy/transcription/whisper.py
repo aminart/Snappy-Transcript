@@ -42,6 +42,11 @@ def validate_ctranslate2_model(model_path: str) -> ModelValidation:
 
 
 class LocalWhisperProvider(TranscriptionProvider):
+    def configure(self, vad_filter: bool, glossary: str) -> None:
+        """Réglages propres à chaque session : un modèle préchargé peut ainsi servir à la session suivante."""
+        self.vad_filter = vad_filter
+        self.glossary = " ".join((glossary or "").replace(",", " ").replace(";", " ").split())
+
     def __init__(self, model_path: str, cpu_threads: int = 4, vad_filter: bool = True, acceleration: str = "auto", glossary: str = ""):
         validation = validate_ctranslate2_model(model_path)
         if not validation.valid:
@@ -57,8 +62,7 @@ class LocalWhisperProvider(TranscriptionProvider):
             ) from exc
 
         self.model_path = validation.path
-        self.vad_filter = vad_filter
-        self.glossary = " ".join((glossary or "").replace(",", " ").replace(";", " ").split())
+        self.configure(vad_filter, glossary)
         self.faster_whisper_version = importlib.metadata.version("faster-whisper")
         try:
             self.ctranslate2_version = importlib.metadata.version("ctranslate2")

@@ -161,6 +161,9 @@ def test_modele_de_l_equipe_fourni_par_studio_dock(client, tmp_path, monkeypatch
     class Faux:
         def __init__(self, chemin, **_):
             choisi["chemin"] = chemin
+
+        def configure(self, vad_filter, glossary):
+            choisi["glossaire"] = glossary
     monkeypatch.setattr("snappy.transcription.whisper.LocalWhisperProvider", Faux)
     r = client.post("/api/session/start", json={**DEMARRAGE, "engine": "local", "model_path": ""})
     assert r.status_code == 200 and choisi["chemin"] == str(modele)
