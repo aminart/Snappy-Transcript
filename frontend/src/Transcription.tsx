@@ -425,7 +425,7 @@ export const Transcription: React.FC = () => {
       <p className="sr-only" aria-live="polite">{annonce}</p>
       <div className="nn-page-head">
         <div>
-          <h1 className="nn-page-title">Transcription</h1>
+          <h1 className="nn-page-title">Transcrire</h1>
           <p className="nn-page-subtitle">Tout reste sur cet ordinateur : aucun son ne quitte le poste.</p>
         </div>
       </div>
