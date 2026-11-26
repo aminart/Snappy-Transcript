@@ -194,13 +194,9 @@ export const Pret: React.FC<Props> = ({ reglages: r, regler, ecoute, capacites, 
           {ecoute !== "app" && ecoute !== "tout" && (
             <Ligne id="micro" label="Microphone" ouvert={ouvert === "micro"} basculer={basculer("micro")} bloque={occupe || entrees.length === 0}
               fin={micChoisi && <EtatSon mesure={apercu?.voix} ok="On vous entend" attente="Parlez pour tester" />}
-              aide={ecoute !== "voix" && systemeOk ? <span>Avec des haut-parleurs, le micro réentend vos interlocuteurs : un casque évite les doublons.</span> : undefined}
               editeur={
                 <fieldset className="m-0 flex flex-col gap-2 border-0 p-0">
-                  <legend className="mb-1 p-0 text-[13px] leading-snug text-ink-muted">
-                    Choisissez un micro puis parlez : la barre verte doit bouger. Sinon, essayez le suivant.
-                    Un casque s'appelle souvent « Casque », « Headset » ou porte sa marque.
-                  </legend>
+                  <legend className="sr-only">Microphone</legend>
                   <div className="flex flex-col gap-1">
                     {entrees.map((d) => {
                       const coche = d.name === micChoisi?.name;

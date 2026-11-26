@@ -469,7 +469,8 @@ export const Transcription: React.FC = () => {
 
       <section className="nn-card flex flex-wrap overflow-hidden p-0">
         <div id="commandes" tabIndex={-1} role="region" aria-label="Démarrer"
-          className="relative flex flex-[1_1_340px] flex-col items-center justify-start gap-4 border-line bg-surface-2 px-6 py-10 outline-none max-md:border-b md:border-r">
+          className={`relative flex flex-[1_1_340px] flex-col items-center ${avances ? "justify-start" : "justify-center"} gap-4 border-line bg-surface-2 px-6 py-10 outline-none max-md:border-b md:border-r`}>
+          {/* Centré sur la hauteur ; en haut quand les réglages avancés allongent la carte (il ne descend pas avec eux) */}
           {modeFichier ? (
             <>
               <FilePicker choix={choix} choisir={setChoix} extensions={capacites?.file_extensions ?? []} disponible={capacites?.files ?? true} occupe={demarrage} />

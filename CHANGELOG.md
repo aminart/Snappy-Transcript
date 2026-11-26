@@ -2,6 +2,9 @@
 
 ## [Non publié]
 
+- « Démarrer l'enregistrement » centré sur la hauteur de la carte (en haut quand les réglages avancés sont ouverts).
+- Microphone : textes d'aide retirés (casque, barre verte), la liste se suffit.
+
 ## [0.2.1] — 2026-11-26
 
 - Exe Windows fabriqué par GitHub : inclut désormais les runtimes CUDA (`cuBLAS`, `cuDNN`) pour l'accélération GPU NVIDIA avec `faster-whisper` (tout en conservant le fonctionnement sur CPU).
