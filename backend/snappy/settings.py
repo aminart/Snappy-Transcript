@@ -12,10 +12,11 @@ from .paths import app_data_dir
 
 DEFAULTS: dict[str, Any] = {
     "mode": "live",                  # live (micro / son du PC) | file (fichier audio ou vidéo)
-    "source": "microphone",          # microphone | system | mixed
+    "source": "mixed",               # microphone | system | mixed (défaut : ma voix + une application)
     "engine": "local",               # local | mock
     "input_device": "",              # nom du micro ; vide : le premier détecté
     "output_device": "",             # nom de la sortie Windows à capturer ; vide : la sortie par défaut
+    "ecoute": "voix_app",            # choix « On écoute » : voix | app | tout | voix_app | voix_tout
     "app": "",                       # programme dont on capte le son seul (« ms-teams.exe ») ; vide : tout le son
     "app_name": "",                  # son nom lisible (« Microsoft Teams »), pour les messages quand elle est fermée
     "model_path": "",                # modèle choisi sur ce poste (seulement si use_own_model)
@@ -29,6 +30,7 @@ DEFAULTS: dict[str, Any] = {
     "save_audio": True,
     "diarization": True,
     "diarization_model_path": "",
+    "use_own_diarization_model": False, # True : dossier indiqué ici plutôt que le modèle de l'équipe (Studio Dock)
     "speaker_hint": 0,
 }
 

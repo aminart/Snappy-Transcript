@@ -10,6 +10,8 @@ export interface Settings {
   engine: Engine;
   input_device: string;
   output_device: string;
+  /** Choix « On écoute » (voix, app, tout, voix_app, voix_tout). */
+  ecoute: "voix" | "app" | "tout" | "voix_app" | "voix_tout";
   /** Programme dont on capte le son seul (« ms-teams.exe ») ; vide : tout le son de l'ordinateur. */
   app: string;
   app_name: string;
@@ -24,6 +26,8 @@ export interface Settings {
   save_audio: boolean;
   diarization: boolean;
   diarization_model_path: string;
+  /** true : dossier indiqué ici plutôt que le modèle d'identification de l'équipe (Studio Dock). */
+  use_own_diarization_model: boolean;
   speaker_hint: number;
 }
 
@@ -38,7 +42,7 @@ export interface Capabilities {
   file_extensions: string[];
 }
 
-export interface InputDevice { index: number; name: string; channels: number; default_samplerate: number }
+export interface InputDevice { index: number; name: string; channels: number; default_samplerate: number; default?: boolean }
 export interface OutputDevice { name: string; id: string }
 export interface Devices { inputs: InputDevice[]; input_error: string; outputs: OutputDevice[] }
 

@@ -53,15 +53,51 @@ class MicrophoneSource(AudioSource):
             return None
 
 
-def list_input_devices() -> list[dict]:
-    import sounddevice as sd
-    devices = []
-    for index, info in enumerate(sd.query_devices()):
-        if int(info.get("max_input_channels", 0)) > 0:
-            devices.append({
-                "index": index,
-                "name": str(info.get("name", f"Device {index}")),
-                "channels": int(info.get("max_input_channels", 0)),
-                "default_samplerate": int(info.get("default_samplerate", 0)),
-            })
+def list_input_devices(sd=None) -> list[dict]:
+    """Microphones, une ligne par appareil, le micro par défaut en premier.
+
+    Sous Windows, PortAudio présente chaque micro plusieurs fois (MME, DirectSound, WASAPI, WDM-KS) et MME coupe les
+    noms à 31 caractères : on ne garde que l'API par défaut (celle qu'ouvre l'enregistrement), avec le nom complet
+    donné par WASAPI, et sans les entrées « mappeur » qui ne désignent pas un appareil précis."""
+    if sd is None:
+        import sounddevice as sd
+    appareils = list(sd.query_devices())
+    apis = list(sd.query_hostapis())
+    try:
+        api_defaut = int(sd.default.hostapi)
+    except Exception:
+        api_defaut = -1
+    try:
+        entree_defaut = int(sd.default.device[0])
+    except Exception:
+        entree_defaut = -1
+    nom_api = lambda d: str(apis[int(d.get("hostapi", 0))]["name"]) if apis and 0 <= int(d.get("hostapi", 0)) < len(apis) else ""  # noqa: E731
+    entrees = [(i, d) for i, d in enumerate(appareils) if int(d.get("max_input_channels", 0)) > 0]
+    windows = any("WASAPI" in nom_api(d) or "MME" in nom_api(d) for _, d in entrees)
+    if windows and api_defaut >= 0:
+        complets = [str(d.get("name", "")) for _, d in entrees if "WASAPI" in nom_api(d)]
+        gardes = [(i, d) for i, d in entrees if int(d.get("hostapi", -1)) == api_defaut]
+    else:
+        complets, gardes = [], entrees
+    devices, vus = [], set()
+    for index, info in gardes:
+        nom = str(info.get("name", f"Device {index}")).strip()
+        bas = nom.lower()
+        if any(m in bas for m in ("mixage stéréo", "stereo mix", "what u hear", "wave out mix", "mixage stereo")):
+            continue  # le son de l'ordinateur, pas un micro : il se choisit avec « Tout le son du PC »
+        if windows and ("mappeur" in nom.lower() or "mapper" in nom.lower() or "pilote de capture" in nom.lower()
+                        or "primary sound capture" in nom.lower()):
+            continue
+        complet = next((c for c in complets if c.startswith(nom) and len(c) > len(nom)), nom)
+        if complet in vus:
+            continue
+        vus.add(complet)
+        devices.append({
+            "index": index,
+            "name": complet,
+            "channels": int(info.get("max_input_channels", 0)),
+            "default_samplerate": int(info.get("default_samplerate", 0)),
+            "default": index == entree_defaut,
+        })
+    devices.sort(key=lambda d: not d["default"])
     return devices

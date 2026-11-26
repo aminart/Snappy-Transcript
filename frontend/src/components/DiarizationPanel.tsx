@@ -6,13 +6,16 @@ import type { SessionState } from "../types";
 
 interface Props {
   etat: SessionState;
+  /** Dossier du modèle ; vide quand celui de l'équipe (Studio Dock) est utilisé. */
   cheminPipeline: string;
+  /** Un modèle est disponible : celui de l'équipe, ou un dossier indiqué. */
+  pipelinePret: boolean;
   locuteurs: number;
   disponible: boolean;
   relancer: (corps: { model_path: string; speakers: number }) => Promise<void>;
 }
 
-export const DiarizationPanel: React.FC<Props> = ({ etat, cheminPipeline, locuteurs, disponible, relancer }) => {
+export const DiarizationPanel: React.FC<Props> = ({ etat, cheminPipeline, pipelinePret, locuteurs, disponible, relancer }) => {
   const d = etat.diarization;
   const [erreur, setErreur] = React.useState("");
   const [occupe, setOccupe] = React.useState(false);
@@ -24,13 +27,13 @@ export const DiarizationPanel: React.FC<Props> = ({ etat, cheminPipeline, locute
     try { await relancer({ model_path: cheminPipeline, speakers: locuteurs }); } catch (e) { setErreur(messageErreur(e)); } finally { setOccupe(false); }
   };
   const bouton = (libelle: string) => (
-    <button type="button" className="nn-btn nn-btn-secondary self-start" onClick={lancer} disabled={occupe || !disponible || !wav || !cheminPipeline.trim()}>
+    <button type="button" className="nn-btn nn-btn-secondary self-start" onClick={lancer} disabled={occupe || !disponible || !wav || !pipelinePret}>
       {libelle}
     </button>
   );
   const impossible = !disponible ? "L'identification des intervenants n'est pas incluse dans cette installation."
     : !wav ? "L'enregistrement audio n'a pas été gardé : les intervenants ne peuvent plus être identifiés."
-    : !cheminPipeline.trim() ? "Indiquez le dossier du modèle d'identification dans les réglages (section Intervenants)." : "";
+    : !pipelinePret ? "Aucun modèle d'identification des intervenants : indiquez son dossier dans Transcrire › Réglages avancés." : "";
 
   return (
     <div className="flex flex-col gap-3" aria-live="polite">

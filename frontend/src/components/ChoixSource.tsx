@@ -4,12 +4,21 @@ import type { AppAudio, Applications, Settings, Source } from "../types";
 /** Ce que la personne choisit d'écouter ; se traduit en `source` + `app` côté serveur. */
 export type Ecoute = "voix" | "app" | "tout" | "voix_app" | "voix_tout";
 
-export function ecouteDe(r: Pick<Settings, "source" | "app">): Ecoute {
+export function ecouteDe(r: Pick<Settings, "source" | "app" | "ecoute">): Ecoute {
+  if (r.ecoute && ["voix", "app", "tout", "voix_app", "voix_tout"].includes(r.ecoute)) return r.ecoute;
   if (r.source === "microphone") return "voix";
   if (r.source === "system") return r.app ? "app" : "tout";
   return r.app ? "voix_app" : "voix_tout";
 }
 
+/** Le choix tel qu'il peut s'appliquer sur ce poste : sans capture d'application (Windows ancien) on se rabat sur
+ *  tout le son du PC, sans son du PC du tout (Mac, Linux) sur la voix seule. */
+export function ecouteEffective(r: Pick<Settings, "source" | "app" | "ecoute">, systeme: boolean, application: boolean): Ecoute {
+  const e = ecouteDe(r);
+  if (avecApplication(e) && !application) return systeme ? (e === "voix_app" ? "voix_tout" : "tout") : "voix";
+  if ((e === "tout" || e === "voix_tout") && !systeme) return "voix";
+  return e;
+}
 export const avecApplication = (e: Ecoute) => e === "app" || e === "voix_app";
 
 const TEINTES = ["bg-primary", "bg-accent-muted", "bg-ink-muted", "bg-ink-body"];

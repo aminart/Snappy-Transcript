@@ -2,6 +2,25 @@
 
 ## [Non publié]
 
+- « Exporter › Envoyer à DocAnalyser » : la transcription (titre, date, durée, intervenants, puis le texte horodaté
+  avec les noms) est déposée dans DocAnalyser, qui s'ouvre dans un nouvel onglet sur « Synthèse de transcription »,
+  prête à lancer. DocAnalyser doit être lancé (Studio Dock) ; adresse http://127.0.0.1:8020, ou `DOCANALYSER_URL`.
+- Identification des intervenants intégrée : installée d'office par install.bat / install.sh et incluse dans l'exe
+  (`leger` pour s'en passer ; un échec n'empêche pas de transcrire). Son modèle pyannote est fourni par l'équipe via
+  Studio Dock (studiodock_ia.intervenants()) et utilisé sans rien régler ; un dossier choisi sur le poste reste possible.
+- « Ouvrir le dossier » retiré (vue d'une transcription et menu de Mes transcriptions).
+- Mes transcriptions : une transcription s'ouvre dans l'onglet (titre cliquable ou « Ouvrir ») et se ferme avec
+  « Mes transcriptions » ou le bouton Précédent du navigateur ; recherche, filtre et position de la liste sont retrouvés.
+- Point rouge « Enregistrement en cours » (avec la durée) dans la barre des onglets, sur toutes les pages ; un clic
+  ramène à l'enregistrement.
+- Retours d'utilisation : l'app s'ouvre toujours sur « En direct » ; « On écoute » tient sur une ligne, avec
+  « Ma voix + une application » en premier et choisi par défaut (l'application de la visio en cours est prise
+  d'office) ; précisions et cases rangées dans leur ligne ; liste des micros dédoublonnée (une ligne par appareil,
+  nom complet, micro par défaut en premier, sans « Mixage stéréo ») avec un conseil pour choisir ; « Réglages
+  avancés » en bouton dépliant ; aide pour ajouter l'identification des intervenants ; partie gauche alignée en haut.
+- Mes transcriptions : filtres « Toutes / En direct / Depuis un fichier / Avec intervenants », « Libérer de la place »
+  en bouton, et une transcription rouverte s'affiche sans quitter l'onglet (retour par « Mes transcriptions »).
+- Résultat : « Nouvelle transcription » en bouton, « Exporter » en bouton principal, « Copier le texte » secondaire.
 - Démarrage immédiat : le modèle de transcription se prépare dès l'ouverture de la page (« ✓ Modèle prêt ») et reste
   en mémoire d'une session à l'autre.
 - Un seul texte à corriger : avec les intervenants dès qu'ils sont identifiés ; chaque correction est reportée dans le

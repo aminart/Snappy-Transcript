@@ -1,4 +1,6 @@
 import React from "react";
+import { api } from "./api";
+import { hms } from "./format";
 import { Historique } from "./Historique";
 import { Transcription } from "./Transcription";
 
@@ -20,7 +22,43 @@ const PAGES: { id: Page; label: string }[] = [
 ];
 
 const pageDepuisAdresse = (): Page =>
-  window.location.hash === "#/historique" ? "historique" : "transcription";
+  window.location.hash.startsWith("#/historique") ? "historique" : "transcription";
+
+interface Bref { active: boolean; kind?: "live" | "file"; paused?: boolean; stopping?: boolean; duration?: number }
+
+/** Point rouge « Enregistrement en cours » dans la barre des onglets, visible depuis toutes les pages ;
+ *  un clic ramène à l'enregistrement. */
+const IndicateurSession: React.FC = () => {
+  const [bref, setBref] = React.useState<Bref>({ active: false });
+  React.useEffect(() => {
+    let arrete = false;
+    const boucle = async () => {
+      while (!arrete) {
+        try { const b = await api<Bref>("/api/session/brief"); if (!arrete) setBref(b); } catch { /* serveur occupé */ }
+        await new Promise((r) => setTimeout(r, 1000));
+      }
+    };
+    boucle();
+    return () => { arrete = true; };
+  }, []);
+  if (!bref.active) return null;
+  const fichier = bref.kind === "file";
+  const texte = bref.stopping ? (fichier ? "Arrêt de la transcription…" : "Fin de l'enregistrement…")
+    : bref.paused ? (fichier ? "Transcription en pause" : "Enregistrement en pause")
+    : fichier ? "Transcription en cours" : "Enregistrement en cours";
+  const point = bref.paused || bref.stopping ? "bg-warning" : fichier ? "bg-accent" : "bg-danger";
+  return (
+    <a href="#/" title="Revenir à l'enregistrement"
+      className="ml-2 inline-flex items-center gap-2 self-center rounded-full border border-line bg-surface px-3 py-1 text-[13px] font-medium text-ink no-underline hover:bg-surface-3">
+      <span className="relative flex h-2.5 w-2.5" aria-hidden="true">
+        {!bref.paused && !bref.stopping && <span className={`absolute inline-flex h-full w-full animate-ping rounded-full opacity-60 ${point}`} />}
+        <span className={`relative inline-flex h-2.5 w-2.5 rounded-full ${point}`} />
+      </span>
+      <span>{texte}</span>
+      {!fichier && bref.duration !== undefined && <span className="font-mono text-[12px] tabular-nums text-ink-muted">{hms(bref.duration)}</span>}
+    </a>
+  );
+};
 
 export const App: React.FC = () => {
   const [page, setPage] = React.useState<Page>(pageDepuisAdresse);
@@ -53,6 +91,7 @@ export const App: React.FC = () => {
             </a>
           ))}
         </nav>
+        <IndicateurSession />
         {/* 3 · Utilitaires, dans cet ordre : aide, langue, thème, réglages (omettre ceux qui manquent) */}
         <div className="nn-appbar-tools">
           <BoutonTheme />

@@ -1,8 +1,9 @@
 #!/bin/sh
 # Installe Snappy Transcript pour le tester sur un Mac (ou Linux), une seule fois, puis ./start.sh.
 #
-#   ./install.sh                          installation normale (transcription en direct et depuis un fichier)
-#   ./install.sh intervenants             ajoute l'identification des intervenants (PyTorch, ~2 Go)
+#   ./install.sh                          installation complète : transcription et identification des intervenants
+#                                         (PyTorch et pyannote, environ 1 Go ; sauf Mac Intel, où PyTorch n'existe plus)
+#   ./install.sh leger                    sans l'identification des intervenants (installation plus rapide)
 #   ./install.sh /chemin/companyCA.crt    derrière le proxy de l'entreprise (certificat)
 #   (les deux options peuvent se combiner, dans n'importe quel ordre)
 #
@@ -13,11 +14,12 @@
 set -e
 cd "$(dirname "$0")"
 
-INTERVENANTS=""
+INTERVENANTS=1
 CERT=""
 for arg in "$@"; do
   case "$arg" in
     intervenants|--intervenants) INTERVENANTS=1 ;;
+    leger|--leger) INTERVENANTS="" ;;
     *) CERT="$arg" ;;
   esac
 done
@@ -63,7 +65,7 @@ echo
 # --- Identification des intervenants : PyTorch récent, absent des Mac Intel ----------------------------------
 if [ -n "$INTERVENANTS" ] && [ "$SYSTEME" = "Darwin" ] && [ "$PROCESSEUR" = "x86_64" ]; then
   echo "Note : l'identification des intervenants n'est pas disponible sur un Mac à processeur Intel"
-  echo "(PyTorch n'y est plus mis à jour). La transcription, elle, fonctionne : on continue sans."
+  echo "(PyTorch n'y est plus mis à jour). La transcription, elle, fonctionne : l'installation continue sans."
   echo
   INTERVENANTS=""
 fi

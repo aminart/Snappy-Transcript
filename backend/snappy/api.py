@@ -81,9 +81,11 @@ class CheminModele(BaseModel):
 @router.get("/model")
 def model() -> dict[str, Any]:
     """Modèle de l'équipe fourni par Studio Dock (null s'il n'y en a pas sur ce poste)."""
-    from .service import team_model
-    equipe = team_model()
-    return {"team": None if equipe is None else {"name": equipe.name, "version": equipe.version, "path": equipe.path}}
+    from .service import team_diarization_model, team_model
+    equipe, intervenants = team_model(), team_diarization_model()
+    return {"team": None if equipe is None else {"name": equipe.name, "version": equipe.version, "path": equipe.path},
+            "team_diarization": None if intervenants is None else
+            {"name": intervenants.name, "version": intervenants.version, "path": intervenants.path}}
 
 
 @router.post("/model/check")
@@ -206,6 +208,17 @@ def start_file(body: DemandeFichier) -> dict[str, Any]:
 def session(after: int = 0) -> dict[str, Any]:
     """État de la session ; `after` : nombre de segments que le client possède déjà (seuls les suivants sont renvoyés)."""
     return manager.state(after)
+
+
+@router.get("/session/brief")
+def session_brief() -> dict[str, Any]:
+    """Résumé léger pour la barre des onglets (point « enregistrement en cours ») : sans le texte."""
+    c = manager.current
+    if not c or c.finished:
+        return {"active": False}
+    live = c.live
+    return {"active": True, "kind": getattr(live, "kind", "live"), "paused": live.is_paused,
+            "stopping": live.stop_requested, "duration": round(live.duration, 1)}
 
 
 @router.post("/session/pause")
@@ -331,6 +344,24 @@ def session_docx() -> Response:
     nom = re.sub(r'[\\/:*?"<>|]+', "-", titre).strip() or "transcription"
     return Response(contenu, media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                     headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(nom)}.docx"})
+
+
+@router.get("/docanalyser")
+def docanalyser_etat() -> dict[str, Any]:
+    """DocAnalyser est-il lancé sur ce poste ? (pour proposer « Analyser dans DocAnalyser »)"""
+    from . import docanalyser
+    return {"available": docanalyser.disponible(), "address": docanalyser.adresse()}
+
+
+@router.post("/session/docanalyser")
+def session_vers_docanalyser() -> dict[str, str]:
+    """Dépose la transcription dans DocAnalyser et renvoie l'adresse qui l'ouvre, prête à synthétiser."""
+    from . import docanalyser
+    contenu, titre = _session().pour_analyse()
+    try:
+        return {"url": docanalyser.envoyer(contenu, titre)}
+    except docanalyser.Injoignable as e:
+        raise ServiceError(str(e), 503) from e
 
 
 @router.post("/session/open-folder")
