@@ -31,6 +31,13 @@ Elle remplace l'ancienne interface Streamlit (Audio Transcriber 1.5.7), dont ell
 - **Vu-mètre** pendant l'enregistrement et alerte si aucun son n'arrive.
 - **Copie de récupération** du texte après chaque bloc, en cas de plantage.
 
+### Synthèse dans DocAnalyser
+
+Dans le résultat, **Exporter › Envoyer à DocAnalyser** dépose la transcription dans DocAnalyser (autre app de la
+suite Studio Dock) et l'ouvre sur « Synthèse de transcription », prête à lancer. DocAnalyser doit être lancé sur le
+poste ; Snappy le cherche à http://127.0.0.1:8020 (son port dans Studio Dock), ou à l'adresse de la variable
+d'environnement `DOCANALYSER_URL`. Il faut une version de DocAnalyser qui sait recevoir un document (2.11 ou plus).
+
 ## Où sont les données
 
 Dossier `SnappyTranscript` dans `%LOCALAPPDATA%` (Windows), `~/Library/Application Support` (Mac) ou `~/.local/share` (Linux) ;

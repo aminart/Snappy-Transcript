@@ -328,3 +328,55 @@ def test_resume_pour_la_barre_des_onglets(client):
     client.post("/api/session/stop")
     attendre(client, lambda e: e["finalized"])
     assert client.get("/api/session/brief").json() == {"active": False}
+
+
+def test_envoyer_a_docanalyser(client, monkeypatch):
+    """La transcription est déposée dans DocAnalyser (multipart, comme un import) ; l'adresse ouvre l'import."""
+    import json
+    import threading
+    from http.server import BaseHTTPRequestHandler, HTTPServer
+
+    recu: dict = {}
+
+    class Faux(BaseHTTPRequestHandler):
+        def log_message(self, *a):
+            pass
+
+        def _json(self, data):
+            corps = json.dumps(data).encode()
+            self.send_response(200); self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(corps))); self.end_headers(); self.wfile.write(corps)
+
+        def do_GET(self):
+            self._json({"status": "ok", "app": "docanalyser"})
+
+        def do_POST(self):
+            recu["type"] = self.headers["Content-Type"]
+            recu["corps"] = self.rfile.read(int(self.headers["Content-Length"]))
+            self._json({"id": "doc-42"})
+
+    serveur = HTTPServer(("127.0.0.1", 0), Faux)
+    threading.Thread(target=serveur.serve_forever, daemon=True).start()
+    base = f"http://127.0.0.1:{serveur.server_port}"
+    monkeypatch.setenv("DOCANALYSER_URL", base)
+    try:
+        assert client.get("/api/docanalyser").json()["available"]
+        client.post("/api/session/start", json=DEMARRAGE)
+        assert client.post("/api/session/docanalyser").status_code == 409  # pas terminée
+        client.post("/api/session/stop")
+        attendre(client, lambda e: e["finalized"])
+        session_terminee(client, diariser=True, monkeypatch=monkeypatch)
+        client.put("/api/session/speakers", json={"names": {"SPEAKER_00": "Marie"}})
+        client.put("/api/session/title", json={"title": "Atelier : parcours"})
+        r = client.post("/api/session/docanalyser")
+        assert r.status_code == 200, r.text
+        assert r.json()["url"] == f"{base}/#/importer/doc-42?mode=transcript&from=Snappy%20Transcript"
+        assert recu["type"].startswith("multipart/form-data; boundary=")
+        assert b'name="file"' in recu["corps"] and b"Atelier - parcours.txt" in recu["corps"]
+        assert "Atelier : parcours\nDate : ".encode() in recu["corps"] and b"[00:00:0" in recu["corps"]
+        assert "Intervenants : Marie, SPEAKER_01".encode() in recu["corps"] and "Marie: ".encode() in recu["corps"]
+    finally:
+        serveur.shutdown()
+    monkeypatch.setenv("DOCANALYSER_URL", "http://127.0.0.1:9")
+    r = client.post("/api/session/docanalyser")
+    assert r.status_code == 503 and "Studio Dock" in r.json()["detail"]

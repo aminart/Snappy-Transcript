@@ -393,6 +393,23 @@ class ActiveSession:
             infos.append(f"intervenants : {', '.join(noms)}")
         return segments_to_docx(segs, titre, " · ".join(i for i in infos if i), self.marks_view()), titre
 
+    def pour_analyse(self) -> tuple[bytes, str]:
+        """Texte envoyé à DocAnalyser : en-tête (titre, date, durée, intervenants) puis les phrases horodatées."""
+        if not self.finished:
+            raise ServiceError("La session n'est pas terminée.", 409)
+        segs = self.named(self.diarized_segments) if self.diarized_segments is not None else (self.raw_segments or [])
+        if not segs:
+            raise ServiceError("La transcription est vide : rien à analyser.", 409)
+        titre = self.title or self.default_title()
+        tete = [titre]
+        if self.started:
+            tete.append(f"Date : {self.started.replace('T', ' à ')[:-3].replace('-', '/')}")
+        tete.append(f"Durée : {timestamp(self.live.duration)}")
+        noms = sorted({x.speaker for x in segs if x.speaker})
+        if noms:
+            tete.append(f"Intervenants : {', '.join(noms)}")
+        return ("\n".join(tete) + "\n\n" + segments_to_txt(segs)).encode("utf-8"), titre
+
     def default_title(self) -> str:
         nom = getattr(self.live, "display_name", None)
         if nom:

@@ -2,6 +2,9 @@
 
 ## [Non publié]
 
+- « Exporter › Envoyer à DocAnalyser » : la transcription (titre, date, durée, intervenants, puis le texte horodaté
+  avec les noms) est déposée dans DocAnalyser, qui s'ouvre dans un nouvel onglet sur « Synthèse de transcription »,
+  prête à lancer. DocAnalyser doit être lancé (Studio Dock) ; adresse http://127.0.0.1:8020, ou `DOCANALYSER_URL`.
 - Identification des intervenants intégrée : installée d'office par install.bat / install.sh et incluse dans l'exe
   (`leger` pour s'en passer ; un échec n'empêche pas de transcrire). Son modèle pyannote est fourni par l'équipe via
   Studio Dock (studiodock_ia.intervenants()) et utilisé sans rien régler ; un dossier choisi sur le poste reste possible.

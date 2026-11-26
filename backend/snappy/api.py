@@ -346,6 +346,24 @@ def session_docx() -> Response:
                     headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(nom)}.docx"})
 
 
+@router.get("/docanalyser")
+def docanalyser_etat() -> dict[str, Any]:
+    """DocAnalyser est-il lancé sur ce poste ? (pour proposer « Analyser dans DocAnalyser »)"""
+    from . import docanalyser
+    return {"available": docanalyser.disponible(), "address": docanalyser.adresse()}
+
+
+@router.post("/session/docanalyser")
+def session_vers_docanalyser() -> dict[str, str]:
+    """Dépose la transcription dans DocAnalyser et renvoie l'adresse qui l'ouvre, prête à synthétiser."""
+    from . import docanalyser
+    contenu, titre = _session().pour_analyse()
+    try:
+        return {"url": docanalyser.envoyer(contenu, titre)}
+    except docanalyser.Injoignable as e:
+        raise ServiceError(str(e), 503) from e
+
+
 @router.post("/session/open-folder")
 def open_current_folder() -> dict[str, bool]:
     manager.open_session_folder()
