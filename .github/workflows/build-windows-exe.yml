@@ -1,7 +1,7 @@
 name: Build Windows exe
 
-# Fabrique SnappyTranscript.exe sur une machine Windows de GitHub, comme build_exe.bat sans option :
-# transcription (faster-whisper, CPU) + identification des intervenants (pyannote, PyTorch CPU).
+# Fabrique SnappyTranscript.exe sur une machine Windows de GitHub, comme build_exe.bat gpu :
+# transcription (faster-whisper, CPU + GPU NVIDIA CUDA) + identification des intervenants (pyannote, PyTorch CPU).
 # - à la main (onglet Actions), ou sur une PR qui touche à la fabrication : l'exe est disponible en
 #   artefact « SnappyTranscript-windows » ;
 # - à chaque release publiée (tag vX.Y.Z) : l'exe est en plus joint à la release, sous le nom
@@ -72,7 +72,9 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install --no-index --find-links backend/vendor comtypes psutil
-          # PyTorch CPU (le GPU n'est pas inclus, comme build_exe.bat sans option « gpu »)
+          # Runtimes CUDA (cuBLAS, cuDNN) pour la transcription GPU NVIDIA avec faster-whisper
+          pip install -r backend/requirements-gpu.txt
+          # PyTorch CPU pour l'identification des intervenants (pyannote)
           pip install torch --index-url https://download.pytorch.org/whl/cpu
           pip install -r backend/requirements-diarization.txt pyinstaller
 
