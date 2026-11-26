@@ -2,6 +2,10 @@
 
 ## [Non publié]
 
+## [0.2.1] — 2026-11-26
+
+- Exe Windows fabriqué par GitHub : inclut désormais les runtimes CUDA (`cuBLAS`, `cuDNN`) pour l'accélération GPU NVIDIA avec `faster-whisper` (tout en conservant le fonctionnement sur CPU).
+
 ## [0.2.0] — 2026-11-26
 
 - Exe fabriqué par GitHub à chaque release (`SnappyTranscript-X.Y.Z.exe` et un zip joints à la release), avec
