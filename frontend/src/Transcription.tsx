@@ -1,22 +1,27 @@
 import React from "react";
 import { api, envoyerFichier, messageErreur } from "./api";
-import { avecApplication, ecouteDe } from "./components/ChoixSource";
-import { DiarizationPanel } from "./components/DiarizationPanel";
+import { avecApplication, ecouteEffective, versSource } from "./components/ChoixSource";
 import { EnDirect } from "./components/EnDirect";
 import { type ChoixFichier, FilePicker } from "./components/FilePicker";
 import { type Apercu, Pret, ReglagesAvances, useBlocModele } from "./components/Pret";
-import { ResultatPage } from "./components/ResultatPage";
+import { VueResultat } from "./components/VueResultat";
 import { Alerte } from "./components/ui";
 import type { Applications, Capabilities, Cuda, Devices, Mode, ModeleEquipe, Niveau, Settings, SessionState, Verification } from "./types";
 import { useSession } from "./useSession";
 
 /** Réglages mémorisés côté serveur : chaque changement est enregistré après une courte pause de frappe. */
-function useReglages() {
+export function useReglages() {
   const [reglages, setReglages] = React.useState<Settings | null>(null);
   const attente = React.useRef<Record<string, unknown>>({});
   const minuteur = React.useRef<number | undefined>(undefined);
 
-  React.useEffect(() => { api<Settings>("/api/settings").then(setReglages).catch(() => undefined); }, []);
+  React.useEffect(() => {
+    api<Settings>("/api/settings").then((s) => {
+      // L'app s'ouvre toujours sur « En direct » : « Depuis un fichier » est un choix du moment, pas un réglage.
+      setReglages({ ...s, mode: "live" });
+      if (s.mode !== "live") api("/api/settings", { method: "PUT", json: { mode: "live" } }).catch(() => undefined);
+    }).catch(() => undefined);
+  }, []);
 
   const regler = React.useCallback(<K extends keyof Settings>(cle: K, valeur: Settings[K]) => {
     setReglages((s) => (s ? { ...s, [cle]: valeur } : s));
@@ -258,10 +263,11 @@ export const Transcription: React.FC = () => {
   const pipeline = useVerification("/api/diarization/check", reglages?.diarization_model_path ?? "");
 
   const occupe = !!state && !state.finalized;
-  const accueil = !state;
+  // Une session rouverte depuis Mes transcriptions s'affiche là-bas : ici, on reste prêt pour une nouvelle.
+  const accueil = !state || state.archived;
   const enCours = occupe && !state!.stopping;
-  const ecoute = enCours && state!.kind === "live" && !state!.paused;
-  const niveau = useSondage<Niveau>(ecoute, "/api/session/level", 150);
+  const sonRecu = enCours && state!.kind === "live" && !state!.paused;
+  const niveau = useSondage<Niveau>(sonRecu, "/api/session/level", 150);
   const annonce = useAnnonce(state);
   const live = !!reglages && reglages.mode === "live";
   const applications = useApplications(accueil && live && (capacites?.system_audio ?? false));
@@ -270,16 +276,25 @@ export const Transcription: React.FC = () => {
   const entrees = peripheriques?.inputs ?? [];
   const sorties = peripheriques?.outputs ?? [];
   const micChoisi = r ? entrees.find((d) => d.name === r.input_device) ?? entrees[0] : undefined;
-  const avecMicro = !!r && r.source !== "system";
-  const avecSysteme = !!r && r.source !== "microphone";
-  const avecApp = !!r && avecApplication(ecouteDe(r));
+  const systemeOk = capacites?.system_audio ?? false;
+  const ecoute = r ? ecouteEffective(r, systemeOk, systemeOk && (applications?.supported ?? capacites?.app_audio ?? false)) : "voix";
+  const avecMicro = ecoute === "voix" || ecoute === "voix_app" || ecoute === "voix_tout";
+  const avecSysteme = ecoute !== "voix";
+  const avecApp = avecApplication(ecoute);
   const app = r ? applications?.apps.find((a) => a.exe === r.app) : undefined;
   const appOuverte = !avecApp || !!app;
   const sourcePrete = (!avecMicro || !!micChoisi) && (!avecSysteme || !!capacites?.system_audio) && appOuverte;
   const corpsSource = {
-    source: r?.source, input_device: avecMicro ? micChoisi?.index ?? null : null,
+    source: versSource(ecoute), input_device: avecMicro ? micChoisi?.index ?? null : null,
     output_device: r?.output_device || sorties[0]?.name || "", app: avecApp ? r?.app ?? "" : "",
   };
+  // Une application à écouter et aucune choisie : celle de la visio en cours, sinon la première qui fait du son
+  React.useEffect(() => {
+    if (!r || !avecApp || r.app || !applications) return;
+    const a = applications.apps.find((x) => x.exe === applications.recommended) ?? applications.apps.find((x) => x.active);
+    if (a) { regler("app", a.exe); regler("app_name", a.name); }
+  }, [applications, avecApp, r?.app]); // eslint-disable-line react-hooks/exhaustive-deps
+  const [avances, setAvances] = React.useState(false);
   const apercu = useApercu(accueil && live && sourcePrete && !demarrage, corpsSource);
 
   // Raccourcis pendant une session : Espace = pause / reprise, Échap = arrêter, M = marquer (hors champs de saisie)
@@ -352,14 +367,12 @@ export const Transcription: React.FC = () => {
     setErreur("");
     try { await oublier(); window.scrollTo({ top: 0 }); } catch (e) { setErreur(messageErreur(e)); }
   };
-  const ajouterAuGlossaire = (mot: string) => {
-    const mots = r.glossary.split(",").map((m) => m.trim()).filter(Boolean);
-    if (!mots.some((m) => m.toLowerCase() === mot.toLowerCase())) regler("glossary", [...mots, mot].join(", "));
+  const ouvrirAvances = () => {
+    setAvances(true);
+    requestAnimationFrame(() => { const champ = document.getElementById("pipeline"); champ?.scrollIntoView({ block: "center" }); champ?.focus(); });
   };
-  const ouvrirDossier = () => api("/api/session/open-folder", { method: "POST" }).catch((e) => setErreur(messageErreur(e)));
 
   const echecSansTexte = !!state && state.finalized && state.status === "ERROR" && state.total === 0 && !state.archived;
-  const fichiers = (state?.files ?? {}) as { wav?: boolean };
   const enRetard = !!state && state.kind === "live" && enCours && (state.queue >= 3 || state.stats.average_realtime_ratio > 1.15);
 
   const nomApp = app?.name ?? (r.app_name || "l'application");
@@ -369,7 +382,7 @@ export const Transcription: React.FC = () => {
     tout: "Tout le son du PC",
     voix_app: `Votre voix + ${nomApp}`,
     voix_tout: "Votre voix + le son du PC",
-  } as const)[ecouteDe(r)];
+  } as const)[ecoute];
 
   const pourquoiPas = !peutDemarrer && !occupe && !demarrage
     ? (diarisationEnCours ? "Attendez la fin de l'identification des intervenants."
@@ -377,7 +390,8 @@ export const Transcription: React.FC = () => {
       : modeFichier ? (capacites?.files === false ? "La lecture des fichiers n'est pas disponible ici." : "Choisissez d'abord un fichier.")
       : avecMicro && !micChoisi ? "Aucun microphone disponible."
       : avecSysteme && !capacites?.system_audio ? "Le son du PC n'est pas disponible ici."
-      : !appOuverte ? (r.app ? `${r.app_name || "L'application choisie"} n'est pas ouvert : lancez-le, ou choisissez une autre source.` : "Choisissez l'application à écouter.")
+      : !appOuverte ? (r.app ? `${r.app_name || "L'application choisie"} n'est pas ouvert : lancez-le, ou choisissez « Ma voix ».`
+        : "Aucune application ne fait de son pour l'instant : lancez la réunion, ou choisissez « Ma voix ».")
       : "")
     : "";
 
@@ -406,7 +420,7 @@ export const Transcription: React.FC = () => {
           pauseOuReprise={pauseOuReprise} arreter={arreter} marquer={marquer} enRetard={enRetard} />
         <div className="mx-auto mt-4 flex max-w-[1180px] flex-col gap-3">
           {alertes}
-          {ecoute && niveau && niveau.silence >= 10 && (
+          {sonRecu && niveau && niveau.silence >= 10 && (
             <Alerte type="warning">
               Aucun son reçu depuis {Math.round(niveau.silence)} s.{" "}
               {avecApp ? `Vérifiez que ${nomApp} fait bien du son (réunion lancée, son non coupé)${r.source === "mixed" ? " et que le bon microphone est choisi" : ""}.`
@@ -420,26 +434,14 @@ export const Transcription: React.FC = () => {
   }
 
   // --- Résultat ------------------------------------------------------------------------------------------------
-  if (state && !echecSansTexte) {
+  if (state && !state.archived && !echecSansTexte) {
     return (
-      <div className="flex flex-col gap-5">
+      <>
         <p className="sr-only" aria-live="polite">{annonce}</p>
-        {alertes}
-        {!state.archived && state.status !== "ERROR" && (
-          <Alerte type="success">{state.kind === "file" && state.stopping
-            ? "Transcription arrêtée : le texte obtenu jusque-là est enregistré."
-            : "Terminé : le texte est prêt et enregistré dans « Mes transcriptions »."}</Alerte>
-        )}
-        <ResultatPage etat={state} audio={!!fichiers.wav} rafraichir={() => { rafraichir().catch(() => undefined); }}
-          ajouterAuGlossaire={ajouterAuGlossaire} nouvelle={nouvelle}
-          panneauIntervenants={<DiarizationPanel etat={state} cheminPipeline={r.diarization_model_path} locuteurs={r.speaker_hint} disponible={diarisationDispo}
-            relancer={(corps) => action("/api/session/diarization", corps)} />} />
-        <div className="flex flex-wrap items-center gap-3">
-          <button type="button" className="nn-btn nn-btn-secondary" onClick={ouvrirDossier}>Ouvrir le dossier</button>
-          <span className="text-[13px] text-ink-muted">Cette session reste disponible dans <a href="#/historique" className="text-accent underline">Mes transcriptions</a>.</span>
-        </div>
-        {!state.archived && <Diagnostic etat={state} />}
-      </div>
+        {erreur && <Alerte>{erreur}</Alerte>}
+        <VueResultat etat={state} reglages={r} regler={regler} diarisationDispo={diarisationDispo} action={action} rafraichir={rafraichir}
+          retour={{ label: "Nouvelle transcription", faire: nouvelle }} vientDeFinir diagnostic={<Diagnostic etat={state} />} />
+      </>
     );
   }
 
@@ -464,7 +466,7 @@ export const Transcription: React.FC = () => {
 
       <section className="nn-card flex flex-wrap overflow-hidden p-0">
         <div id="commandes" tabIndex={-1} role="region" aria-label="Démarrer"
-          className="relative flex flex-[1_1_340px] flex-col items-center justify-center gap-4 border-line bg-surface-2 px-6 py-10 outline-none max-md:border-b md:border-r">
+          className="relative flex flex-[1_1_340px] flex-col items-center justify-start gap-4 border-line bg-surface-2 px-6 py-10 outline-none max-md:border-b md:border-r">
           {modeFichier ? (
             <>
               <FilePicker choix={choix} choisir={setChoix} extensions={capacites?.file_extensions ?? []} disponible={capacites?.files ?? true} occupe={demarrage} />
@@ -504,9 +506,9 @@ export const Transcription: React.FC = () => {
 
         <div className="flex flex-[2_1_520px] flex-col gap-1 px-7 pb-6 pt-7">
           <h2 className="m-0 mb-1 text-[19px] font-bold text-ink">Prêt ?</h2>
-          <Pret reglages={r} regler={regler} capacites={capacites} peripheriques={peripheriques} applications={applications} apercu={apercu}
+          <Pret reglages={r} regler={regler} ecoute={ecoute} ouvrirAvances={ouvrirAvances} capacites={capacites} peripheriques={peripheriques} applications={applications} apercu={apercu}
             actualiser={actualiser} pipeline={pipeline} modeleOk={modeleOk} blocModele={blocModele} occupe={demarrage} />
-          <ReglagesAvances reglages={r} regler={regler} capacites={capacites} cuda={cuda} modeleOk={modeleOk} blocModele={blocModele} pipeline={pipeline} occupe={demarrage} />
+          <ReglagesAvances ouvert={avances} basculer={() => setAvances(!avances)} reglages={r} regler={regler} capacites={capacites} cuda={cuda} modeleOk={modeleOk} blocModele={blocModele} pipeline={pipeline} occupe={demarrage} />
         </div>
       </section>
       {alertes}

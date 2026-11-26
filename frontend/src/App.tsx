@@ -20,7 +20,7 @@ const PAGES: { id: Page; label: string }[] = [
 ];
 
 const pageDepuisAdresse = (): Page =>
-  window.location.hash === "#/historique" ? "historique" : "transcription";
+  window.location.hash.startsWith("#/historique") ? "historique" : "transcription";
 
 export const App: React.FC = () => {
   const [page, setPage] = React.useState<Page>(pageDepuisAdresse);

@@ -1,6 +1,6 @@
 import React from "react";
 import type { Acceleration, AppAudio, Applications, Capabilities, Cuda, Devices, ModeleEquipe, Settings, Verification } from "../types";
-import { type Ecoute, ListeApplications, avecApplication, ecouteDe, versSource } from "./ChoixSource";
+import { type Ecoute, ListeApplications, avecApplication, versSource } from "./ChoixSource";
 import { Champ, Verifie } from "./ui";
 
 export interface MesureSource { level: number; heard: boolean; error: string }
@@ -13,10 +13,10 @@ const ACCELERATIONS: { id: Acceleration; label: string }[] = [
   { id: "cpu", label: "Processeur" },
 ];
 const CHIPS: { id: Ecoute; label: string }[] = [
+  { id: "voix_app", label: "Ma voix + une application" },
   { id: "voix", label: "Ma voix" },
   { id: "app", label: "Une application" },
   { id: "tout", label: "Tout le son du PC" },
-  { id: "voix_app", label: "Ma voix + une application" },
 ];
 const lien = "self-start border-0 bg-transparent p-0 text-[13px] font-medium text-accent underline disabled:opacity-60";
 
@@ -34,10 +34,12 @@ export const Barres: React.FC<{ niveau: number; nb?: number }> = ({ niveau, nb =
 const Ligne: React.FC<{
   id: string; label: string; children: React.ReactNode; editeur?: React.ReactNode; action?: string; bloque?: boolean;
   ouvert?: boolean; basculer?: () => void; fin?: React.ReactNode;
-}> = ({ id, label, children, editeur, action = "Changer", bloque, ouvert, basculer, fin }) => (
+  /** Précision sous la ligne (case à cocher, conseil, raison) : reste entre les deux séparateurs, alignée sur la valeur. */
+  aide?: React.ReactNode;
+}> = ({ id, label, children, editeur, action = "Changer", bloque, ouvert, basculer, fin, aide }) => (
   <div className="flex flex-col gap-2 border-b border-line py-3.5 last:border-b-0">
     <div className="flex flex-wrap items-center gap-x-3.5 gap-y-2">
-      <span id={`${id}-label`} className="w-[132px] shrink-0 text-[13px] text-ink-muted">{label}</span>
+      <span id={`${id}-label`} className="w-[150px] shrink-0 text-[13px] text-ink-muted">{label}</span>
       <div className="flex min-w-0 flex-[1_1_220px] flex-wrap items-center gap-2">{children}</div>
       {fin}
       {editeur && basculer && (
@@ -45,7 +47,8 @@ const Ligne: React.FC<{
           aria-describedby={`${id}-label`} disabled={bloque} onClick={basculer}>{ouvert ? "Fermer" : action}</button>
       )}
     </div>
-    {editeur && ouvert && <div id={`${id}-editeur`} className="pl-0 sm:pl-[146px]">{editeur}</div>}
+    {aide && <div className="flex flex-col gap-1.5 text-[13px] leading-snug text-ink-muted sm:pl-[164px]">{aide}</div>}
+    {editeur && ouvert && <div id={`${id}-editeur`} className="pl-0 sm:pl-[164px]">{editeur}</div>}
   </div>
 );
 
@@ -63,6 +66,8 @@ const EtatSon: React.FC<{ mesure?: MesureSource; ok: string; attente: string }> 
 interface Props {
   reglages: Settings;
   regler: <K extends keyof Settings>(cle: K, valeur: Settings[K]) => void;
+  /** Choix « On écoute » applicable sur ce poste (voir ecouteEffective). */
+  ecoute: Ecoute;
   capacites: Capabilities | null;
   peripheriques: Devices | null;
   applications: Applications | null;
@@ -72,14 +77,14 @@ interface Props {
   modeleOk: boolean;
   blocModele: React.ReactNode;
   occupe: boolean;
+  ouvrirAvances: () => void;
 }
 
 /** « Prêt ? » : une ligne par sujet, modifiable sur place ; la source se vérifie avant de démarrer. */
-export const Pret: React.FC<Props> = ({ reglages: r, regler, capacites, peripheriques, applications, apercu, actualiser, pipeline, modeleOk, blocModele, occupe }) => {
+export const Pret: React.FC<Props> = ({ reglages: r, regler, ecoute, capacites, peripheriques, applications, apercu, actualiser, pipeline, modeleOk, blocModele, occupe, ouvrirAvances }) => {
   const [ouvert, setOuvert] = React.useState<string | null>(null);
   const basculer = (id: string) => () => setOuvert((o) => (o === id ? null : id));
   const fichier = r.mode === "file";
-  const ecoute = ecouteDe(r);
   const systemeOk = capacites?.system_audio ?? false;
   const appOk = systemeOk && (applications?.supported ?? false);
   const entrees = peripheriques?.inputs ?? [];
@@ -92,10 +97,11 @@ export const Pret: React.FC<Props> = ({ reglages: r, regler, capacites, peripher
 
   const choisirApp = (a: AppAudio) => { regler("app", a.exe); regler("app_name", a.name); setOuvert(null); };
   const changerEcoute = (e: Ecoute) => {
+    regler("ecoute", e);
     regler("source", versSource(e));
     if (!avecApplication(e)) { regler("app", ""); return; }
     if (r.app) return;
-    const a = apps.find((x) => x.exe === applications?.recommended) ?? apps.find((x) => x.active) ?? apps[0];
+    const a = apps.find((x) => x.exe === applications?.recommended) ?? apps.find((x) => x.active);
     if (a) { regler("app", a.exe); regler("app_name", a.name); } else setOuvert("application");
   };
   const dispo = (id: Ecoute) => id === "voix" || (id === "tout" ? systemeOk : appOk);
@@ -109,38 +115,42 @@ export const Pret: React.FC<Props> = ({ reglages: r, regler, capacites, peripher
     }
   };
   const actif = ecoute === "voix_tout" ? "tout" : ecoute;
-  const recommande = appOk && !!applications?.recommended;
 
   return (
     <div className="flex flex-col">
       {!fichier && (
         <>
-          <Ligne id="ecoute" label="On écoute">
-            <div role="radiogroup" aria-labelledby="ecoute-label" className="flex flex-wrap gap-1.5">
+          <Ligne id="ecoute" label="On écoute"
+            aide={<>
+              {(ecoute === "tout" || ecoute === "voix_tout") && (
+                <label className="nn-check text-[13px] text-ink-body">
+                  <input type="checkbox" checked={ecoute === "voix_tout"} disabled={occupe}
+                    onChange={(e) => changerEcoute(e.target.checked ? "voix_tout" : "tout")} />
+                  <span>Ajouter aussi ma voix (micro)</span>
+                </label>
+              )}
+              {!systemeOk && capacites && (
+                <span>{capacites.platform === "win32" ? "Le son de l'ordinateur n'est pas disponible dans cette installation."
+                  : "Le son d'une application ou de tout l'ordinateur ne peut être capté que sous Windows."}</span>
+              )}
+              {systemeOk && applications && !applications.supported && applications.reason && <span className="text-warning-text">{applications.reason}</span>}
+            </>}>
+            <div role="radiogroup" aria-labelledby="ecoute-label" className="flex flex-wrap gap-1.5 xl:flex-nowrap">
               {CHIPS.map((c, i) => {
                 const coche = actif === c.id;
                 return (
                   <button key={c.id} ref={(el) => { chips.current[i] = el; }} type="button" role="radio" aria-checked={coche}
                     tabIndex={coche ? 0 : -1} disabled={!dispo(c.id) || (occupe && !coche)}
                     onClick={() => changerEcoute(c.id === "tout" && ecoute === "voix_tout" ? "voix_tout" : c.id)} onKeyDown={(e) => clavier(e, i)}
-                    className={`h-8 rounded-md border px-3 text-[13px] transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus
+                    className={`h-8 whitespace-nowrap rounded-md border px-2.5 text-[13px] transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus
                       disabled:cursor-not-allowed disabled:opacity-50
                       ${coche ? "border-accent bg-accent-soft font-medium text-accent-ink" : "border-line-strong bg-surface text-ink-body hover:bg-surface-2"}`}>
-                    {coche ? "✓ " : ""}{c.label}{c.id === "voix_app" && recommande && !coche ? " · recommandé" : ""}
+                    {c.label}
                   </button>
                 );
               })}
             </div>
           </Ligne>
-          {!systemeOk && capacites && (
-            <p className="m-0 -mt-1 pb-2 text-[13px] text-ink-muted sm:pl-[146px]">
-              {capacites.platform === "win32" ? "Le son de l'ordinateur n'est pas disponible dans cette installation."
-                : "Le son de l'ordinateur et des applications ne peut être capté que sous Windows."}
-            </p>
-          )}
-          {systemeOk && applications && !applications.supported && applications.reason && (
-            <p className="m-0 -mt-1 pb-2 text-[13px] text-warning-text sm:pl-[146px]">{applications.reason}</p>
-          )}
 
           {avecApplication(ecoute) && (
             <Ligne id="application" label="Application" ouvert={ouvert === "application"} basculer={basculer("application")} bloque={occupe}
@@ -177,35 +187,38 @@ export const Pret: React.FC<Props> = ({ reglages: r, regler, capacites, peripher
             </Ligne>
           )}
 
-          {(ecoute === "tout" || ecoute === "voix_tout") && systemeOk && (
-            <label className="nn-check -mt-1 pb-2 text-sm sm:pl-[146px]">
-              <input type="checkbox" checked={ecoute === "voix_tout"} disabled={occupe}
-                onChange={(e) => changerEcoute(e.target.checked ? "voix_tout" : "tout")} />
-              <span>Ajouter aussi ma voix (micro)</span>
-            </label>
-          )}
 
-          {r.source !== "system" && (
+          {ecoute !== "app" && ecoute !== "tout" && (
             <Ligne id="micro" label="Microphone" ouvert={ouvert === "micro"} basculer={basculer("micro")} bloque={occupe || entrees.length === 0}
               fin={micChoisi && <EtatSon mesure={apercu?.voix} ok="On vous entend" attente="Parlez pour tester" />}
+              aide={ecoute !== "voix" && systemeOk ? <span>Avec des haut-parleurs, le micro réentend vos interlocuteurs : un casque évite les doublons.</span> : undefined}
               editeur={
-                <div className="flex flex-col gap-2">
-                  <Champ id="micro" label="Microphone">
-                    <select id="micro" className="nn-input max-w-[420px]" value={micChoisi?.name ?? ""}
-                      onChange={(e) => { regler("input_device", e.target.value); setOuvert(null); }}>
-                      {entrees.map((d) => <option key={d.index} value={d.name}>{d.name}</option>)}
-                    </select>
-                  </Champ>
+                <fieldset className="m-0 flex flex-col gap-2 border-0 p-0">
+                  <legend className="mb-1 p-0 text-[13px] leading-snug text-ink-muted">
+                    Choisissez un micro puis parlez : la barre verte doit bouger. Sinon, essayez le suivant.
+                    Un casque s'appelle souvent « Casque », « Headset » ou porte sa marque.
+                  </legend>
+                  <div className="flex flex-col gap-1">
+                    {entrees.map((d) => {
+                      const coche = d.name === micChoisi?.name;
+                      return (
+                        <label key={d.index} className={`flex cursor-pointer items-center gap-3 rounded-md border px-3 py-2 ${coche ? "border-accent bg-accent-softer ring-1 ring-accent" : "border-line hover:bg-surface-2"}`}>
+                          <input type="radio" name="micro" className="m-0 h-[18px] w-[18px] accent-[var(--nn-primary)]" checked={coche}
+                            onChange={() => regler("input_device", d.name)} />
+                          <span className="min-w-0 flex-1 text-sm text-ink">{d.name}</span>
+                          {d.default && <span className="text-[12px] text-ink-subtle">micro par défaut de Windows</span>}
+                          {coche && apercu?.voix && <Barres niveau={apercu.voix.level} />}
+                        </label>
+                      );
+                    })}
+                  </div>
                   <button type="button" className={lien} onClick={actualiser}>Actualiser la liste (casque branché à l'instant…)</button>
-                </div>
+                </fieldset>
               }>
               <span className="font-medium text-ink">
                 {micChoisi?.name ?? (peripheriques?.input_error ? "Impossible de lister les microphones" : peripheriques ? "Aucun microphone détecté" : "…")}
               </span>
             </Ligne>
-          )}
-          {r.source === "mixed" && systemeOk && (
-            <p className="m-0 pb-2 text-[13px] leading-snug text-ink-muted sm:pl-[146px]">Avec des haut-parleurs, le micro réentend vos interlocuteurs : un casque évite les doublons.</p>
           )}
         </>
       )}
@@ -232,26 +245,39 @@ export const Pret: React.FC<Props> = ({ reglages: r, regler, capacites, peripher
         <span className={r.glossary.trim() ? "text-ink-body" : "text-ink-subtle"}>{r.glossary.trim() || "Aucun"}</span>
       </Ligne>
 
-      <Ligne id="intervenants" label="Intervenants" action="Préciser" ouvert={ouvert === "intervenants"} basculer={diarisationDispo && r.diarization ? basculer("intervenants") : undefined}
-        bloque={occupe}
+      <Ligne id="intervenants" label="Intervenants" action={diarisationDispo ? "Préciser" : "Comment l'ajouter ?"} ouvert={ouvert === "intervenants"}
+        basculer={!diarisationDispo || r.diarization ? basculer("intervenants") : undefined}
+        bloque={occupe && diarisationDispo}
+        aide={diarisationDispo && r.diarization && pipeline?.valid !== true ? (
+          <span className="flex flex-wrap items-center gap-x-2 gap-y-1 text-warning-text">
+            Il manque le dossier du modèle d'identification des intervenants.
+            <button type="button" className={lien} onClick={ouvrirAvances}>L'indiquer dans les réglages avancés</button>
+          </span>
+        ) : undefined}
         fin={diarisationDispo && (
           <label className="nn-check text-sm"><input type="checkbox" checked={r.diarization} disabled={occupe}
             onChange={(e) => regler("diarization", e.target.checked)} /> <span>Activé</span></label>
         )}
-        editeur={
+        editeur={!diarisationDispo ? (
+          <div className="flex max-w-[560px] flex-col gap-2 rounded-md border border-line bg-surface-2 px-4 py-3 text-[13px] leading-snug text-ink-body">
+            <span>L'identification des intervenants (« qui a dit quoi ») est un module optionnel, un peu lourd (plus de 1 Go) :</span>
+            <ol className="m-0 flex flex-col gap-1 pl-5">
+              <li>fermez Snappy Transcript ;</li>
+              <li>dans le dossier du projet, lancez <code className="rounded bg-surface-3 px-1">install.bat intervenants</code> (sur Mac : <code className="rounded bg-surface-3 px-1">./install.sh intervenants</code>, Mac Apple Silicon seulement) ;</li>
+              <li>relancez l'app, puis indiquez dans « Réglages avancés » le dossier du modèle pyannote fourni par votre équipe.</li>
+            </ol>
+          </div>
+        ) : (
           <Champ id="locuteurs" label="Nombre d'intervenants (0 = je ne sais pas)">
             <input id="locuteurs" type="number" min={0} max={20} className="nn-input max-w-[120px]" value={r.speaker_hint}
               onChange={(e) => regler("speaker_hint", Math.max(0, Math.min(20, Math.floor(Number(e.target.value) || 0))))} />
           </Champ>
-        }>
+        )}>
         <span className="text-ink-body">
           {!diarisationDispo ? "Non incluse dans cette installation"
             : !r.diarization ? "Non identifiés"
             : `Identifiés après l'arrêt · ${r.speaker_hint ? `${r.speaker_hint} personne${r.speaker_hint > 1 ? "s" : ""}` : "nombre inconnu"}`}
         </span>
-        {diarisationDispo && r.diarization && pipeline?.valid !== true && (
-          <span className="basis-full text-[13px] text-warning-text">Indiquez le dossier du modèle d'identification dans « Réglages avancés ».</span>
-        )}
       </Ligne>
 
       {!modeleOk && (
@@ -273,16 +299,22 @@ interface PropsAvances {
   blocModele: React.ReactNode;
   pipeline: Verification | null;
   occupe: boolean;
+  ouvert: boolean;
+  basculer: () => void;
 }
 
 /** Réglages techniques, repliés : moteur, modèle, calcul, blocs, silences, audio gardé, modèle d'identification. */
-export const ReglagesAvances: React.FC<PropsAvances> = ({ reglages: r, regler, capacites, cuda, modeleOk, blocModele, pipeline, occupe }) => {
+export const ReglagesAvances: React.FC<PropsAvances> = ({ reglages: r, regler, capacites, cuda, modeleOk, blocModele, pipeline, occupe, ouvert, basculer }) => {
   const local = r.engine === "local";
   const diarisationDispo = capacites?.diarization !== false;
   return (
-    <details className="group">
-      <summary className="inline-flex cursor-pointer list-none items-center gap-1 text-sm font-medium text-accent underline">Réglages avancés…</summary>
-      <div className="mt-4 flex flex-col gap-4 rounded-lg border border-line bg-surface-2 p-5">
+    <div className="mt-3 flex flex-col">
+      <button type="button" className="nn-btn nn-btn-secondary self-start gap-2" aria-expanded={ouvert} aria-controls="reglages-avances" onClick={basculer}>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" aria-hidden="true"
+          className={`transition-transform ${ouvert ? "rotate-180" : ""}`}><path d="M6 9l6 6 6-6" /></svg>
+        Réglages avancés
+      </button>
+      {ouvert && <div id="reglages-avances" className="mt-4 flex flex-col gap-4 rounded-lg border border-line bg-surface-2 p-5">
         <Champ id="moteur" label="Moteur">
           <select id="moteur" className="nn-input" value={r.engine} disabled={occupe}
             onChange={(e) => regler("engine", e.target.value as Settings["engine"])}>
@@ -334,8 +366,8 @@ export const ReglagesAvances: React.FC<PropsAvances> = ({ reglages: r, regler, c
               placeholder=".\models\pyannote-speaker-diarization-community-1" onChange={(e) => regler("diarization_model_path", e.target.value)} />
           </Champ>
         )}
-      </div>
-    </details>
+      </div>}
+    </div>
   );
 };
 

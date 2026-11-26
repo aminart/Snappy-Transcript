@@ -3,13 +3,16 @@ import { api, messageErreur } from "./api";
 import { dateSession, dureeCourte } from "./components/ResultatPage";
 import { taille } from "./format";
 import { Alerte } from "./components/ui";
-import type { SessionPassee } from "./types";
+import { VueResultat } from "./components/VueResultat";
+import { useReglages } from "./Transcription";
+import { useSession } from "./useSession";
+import type { Capabilities, SessionPassee } from "./types";
 
 type Filtre = "tout" | "live" | "file" | "intervenants";
 const FILTRES: { id: Filtre; label: string }[] = [
-  { id: "tout", label: "Tout" },
+  { id: "tout", label: "Toutes" },
   { id: "live", label: "En direct" },
-  { id: "file", label: "Fichiers" },
+  { id: "file", label: "Depuis un fichier" },
   { id: "intervenants", label: "Avec intervenants" },
 ];
 
@@ -34,8 +37,51 @@ const Crayon = () => (
   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16z" /></svg>
 );
 
+/** Une transcription rouverte, sans quitter « Mes transcriptions » (adresse #/historique/<id>). */
+const Detail: React.FC<{ id: string; recuperer: boolean }> = ({ id, recuperer }) => {
+  const { reglages, regler } = useReglages();
+  const { state, action, rafraichir } = useSession();
+  const [capacites, setCapacites] = React.useState<Capabilities | null>(null);
+  const [erreur, setErreur] = React.useState("");
+  const ouverte = React.useRef(false);
+  React.useEffect(() => { api<Capabilities>("/api/capabilities").then(setCapacites).catch(() => undefined); }, []);
+  React.useEffect(() => {
+    if (ouverte.current) return;
+    ouverte.current = true;
+    api(`/api/history/${id}/${recuperer ? "recover" : "open"}`, { method: "POST" })
+      .then(() => rafraichir())
+      .catch((e) => setErreur(messageErreur(e)));
+  }, [id, recuperer, rafraichir]);
+  const retour = { label: "Mes transcriptions", faire: () => { window.location.hash = "#/historique"; } };
+  if (erreur) {
+    return (
+      <div className="flex flex-col gap-4">
+        <button type="button" className="nn-btn nn-btn-secondary self-start" onClick={retour.faire}>← Mes transcriptions</button>
+        <Alerte>{erreur}</Alerte>
+      </div>
+    );
+  }
+  if (!reglages || !state || state.id !== id) return <p className="m-0 text-sm text-ink-muted">Ouverture…</p>;
+  return (
+    <VueResultat etat={state} reglages={reglages} regler={regler} diarisationDispo={capacites?.diarization ?? false}
+      action={action} rafraichir={rafraichir} retour={retour} vientDeFinir={false} />
+  );
+};
+
 /** Toutes les transcriptions : rechercher dans leur texte, filtrer, renommer, rouvrir, récupérer une session interrompue. */
 export const Historique: React.FC = () => {
+  const [adresse, setAdresse] = React.useState(window.location.hash);
+  React.useEffect(() => {
+    const suivre = () => { setAdresse(window.location.hash); window.scrollTo({ top: 0 }); };
+    window.addEventListener("hashchange", suivre);
+    return () => window.removeEventListener("hashchange", suivre);
+  }, []);
+  const detail = /^#\/historique\/([\w-]+)(\?recuperer)?$/.exec(adresse);
+  if (detail) return <Detail key={detail[1]} id={detail[1]} recuperer={!!detail[2]} />;
+  return <Liste />;
+};
+
+const Liste: React.FC = () => {
   const [sessions, setSessions] = React.useState<SessionPassee[] | null>(null);
   const [q, setQ] = React.useState("");
   const [filtre, setFiltre] = React.useState<Filtre>("tout");
@@ -73,10 +119,7 @@ export const Historique: React.FC = () => {
     setErreur("");
     try { await f(); } catch (e) { setErreur(messageErreur(e)); }
   };
-  const ouvrir = (id: string, recuperer = false) => faire(async () => {
-    await api(`/api/history/${id}/${recuperer ? "recover" : "open"}`, { method: "POST" });
-    window.location.hash = "#/";
-  });
+  const ouvrir = (id: string, recuperer = false) => { window.location.hash = `#/historique/${id}${recuperer ? "?recuperer" : ""}`; };
   const dossier = (id: string) => faire(() => api(`/api/history/${id}/folder`, { method: "POST" }));
   const supprimer = (id: string) => faire(async () => {
     await api(`/api/history/${id}`, { method: "DELETE" });
@@ -120,8 +163,8 @@ export const Historique: React.FC = () => {
         <div className="-mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[13px] text-ink-muted">
           <span>{place.count} transcription{place.count > 1 ? "s" : ""} · {taille(place.size)} sur ce poste{place.audio_size ? `, dont ${taille(place.audio_size)} d'audio` : ""}</span>
           {place.audio_size > 0 && (
-            <button type="button" className="border-0 bg-transparent p-0 text-[13px] font-medium text-accent underline" aria-expanded={liberer}
-              aria-controls="liberer" onClick={() => setLiberer(!liberer)}>Libérer de la place…</button>
+            <button type="button" className="nn-btn nn-btn-secondary h-8 px-3 text-[13px]" aria-expanded={liberer}
+              aria-controls="liberer" onClick={() => setLiberer(!liberer)}>Libérer de la place</button>
           )}
         </div>
       )}

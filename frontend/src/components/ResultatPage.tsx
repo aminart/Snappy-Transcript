@@ -105,14 +105,15 @@ interface Props {
   ajouterAuGlossaire: (mot: string) => void;
   /** Panneau d'identification des intervenants (lancer, avancement, réessayer). */
   panneauIntervenants: React.ReactNode;
-  nouvelle: () => void;
+  /** Bouton du haut : « Nouvelle transcription », ou retour à la liste depuis Mes transcriptions. */
+  retour: { label: string; faire: () => void };
 }
 
 /**
  * Résultat d'une session : titre, texte à corriger sur place, intervenants à nommer d'un clic, lecteur avec forme
  * d'onde par intervenant, moments marqués, rechercher / remplacer, copier et exporter (dont Word).
  */
-export const ResultatPage: React.FC<Props> = ({ etat, audio, rafraichir, ajouterAuGlossaire, panneauIntervenants, nouvelle }) => {
+export const ResultatPage: React.FC<Props> = ({ etat, audio, rafraichir, ajouterAuGlossaire, panneauIntervenants, retour }) => {
   const avecIntervenants = etat.diarization.status === "DONE";
   // Une seule version affichée : avec intervenants dès qu'ils sont identifiés (les corrections sont reportées dans
   // le texte seul par le serveur, qui reste téléchargeable dans « Exporter »).
@@ -312,8 +313,14 @@ export const ResultatPage: React.FC<Props> = ({ etat, audio, rafraichir, ajouter
 
   return (
     <div className="flex flex-col gap-5">
-      <button type="button" className="self-start border-0 bg-transparent p-0 text-sm font-medium text-accent underline" onClick={nouvelle}
-        disabled={etat.diarization.status === "RUNNING"}>← Nouvelle transcription</button>
+      <button type="button" className="nn-btn nn-btn-secondary self-start gap-2" onClick={retour.faire}
+        disabled={etat.diarization.status === "RUNNING" && retour.label === "Nouvelle transcription"}
+        title={etat.diarization.status === "RUNNING" ? "Attendez la fin de l'identification des intervenants" : undefined}>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          {retour.label === "Nouvelle transcription" ? <path d="M12 5v14M5 12h14" /> : <path d="M15 18l-6-6 6-6" />}
+        </svg>
+        {retour.label}
+      </button>
 
       <div className="flex flex-wrap items-end gap-4">
         <div className="min-w-0 flex-[1_1_360px]">
@@ -332,13 +339,13 @@ export const ResultatPage: React.FC<Props> = ({ etat, audio, rafraichir, ajouter
             aria-keyshortcuts="Control+F Control+H" title="Ctrl+F : rechercher · Ctrl+H : remplacer" onClick={() => (recherche ? setRecherche(false) : ouvrirRecherche())}>
             <Loupe /> Rechercher et remplacer
           </button>
-          <button type="button" className="nn-btn nn-btn-primary gap-2" disabled={!segments.length}
+          <button type="button" className="nn-btn nn-btn-secondary gap-2" disabled={!segments.length}
             onClick={async () => { await copier(texteACopier(segments, nomAffiche)); setCopie(true); setTimeout(() => setCopie(false), 2000); }}>
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2" /><path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3" /></svg>
             {copie ? "✓ Copié" : "Copier le texte"}
           </button>
           <div className="relative" data-menu-export>
-            <button ref={boutonMenu} type="button" className={`nn-btn gap-2 ${menu ? "nn-btn-soft" : "nn-btn-secondary"}`} aria-haspopup="menu" aria-expanded={menu}
+            <button ref={boutonMenu} type="button" className="nn-btn nn-btn-primary gap-2" aria-haspopup="menu" aria-expanded={menu}
               onClick={() => setMenu(!menu)}>
               Exporter
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" aria-hidden="true"><path d="M6 9l6 6 6-6" /></svg>
