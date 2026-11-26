@@ -316,3 +316,15 @@ def test_sans_modele_intervenants_explique_quoi_faire(client, tmp_path, monkeypa
     etat = client.post("/api/session/start", json={**DEMARRAGE, "diarization": True, "diarization_model_path": ""}).json()
     assert not etat["diarization"]["wanted"] and "aucun modèle d'identification" in etat["diarization"]["note"]
     client.post("/api/session/stop")
+
+
+def test_resume_pour_la_barre_des_onglets(client):
+    assert client.get("/api/session/brief").json() == {"active": False}
+    client.post("/api/session/start", json=DEMARRAGE)
+    b = client.get("/api/session/brief").json()
+    assert b["active"] and b["kind"] == "live" and not b["paused"] and "segments" not in b
+    client.post("/api/session/pause")
+    assert client.get("/api/session/brief").json()["paused"]
+    client.post("/api/session/stop")
+    attendre(client, lambda e: e["finalized"])
+    assert client.get("/api/session/brief").json() == {"active": False}

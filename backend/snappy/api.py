@@ -210,6 +210,17 @@ def session(after: int = 0) -> dict[str, Any]:
     return manager.state(after)
 
 
+@router.get("/session/brief")
+def session_brief() -> dict[str, Any]:
+    """Résumé léger pour la barre des onglets (point « enregistrement en cours ») : sans le texte."""
+    c = manager.current
+    if not c or c.finished:
+        return {"active": False}
+    live = c.live
+    return {"active": True, "kind": getattr(live, "kind", "live"), "paused": live.is_paused,
+            "stopping": live.stop_requested, "duration": round(live.duration, 1)}
+
+
 @router.post("/session/pause")
 def pause() -> dict[str, Any]:
     return manager.pause()

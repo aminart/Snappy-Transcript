@@ -81,10 +81,15 @@ export const Historique: React.FC = () => {
   return <Liste />;
 };
 
+/** Recherche, filtre et position de la liste, retrouvés en revenant d'une transcription ouverte. */
+const memoire = { q: "", filtre: "tout" as Filtre, defilement: 0 };
+
 const Liste: React.FC = () => {
   const [sessions, setSessions] = React.useState<SessionPassee[] | null>(null);
-  const [q, setQ] = React.useState("");
-  const [filtre, setFiltre] = React.useState<Filtre>("tout");
+  const [q, setQ] = React.useState(memoire.q);
+  const [filtre, setFiltre] = React.useState<Filtre>(memoire.filtre);
+  React.useEffect(() => { memoire.q = q; memoire.filtre = filtre; }, [q, filtre]);
+  const defilementRendu = React.useRef(false);
   const [erreur, setErreur] = React.useState("");
   const [menu, setMenu] = React.useState<string | null>(null);
   const [aSupprimer, setASupprimer] = React.useState<string | null>(null);
@@ -97,7 +102,14 @@ const Liste: React.FC = () => {
 
   const charger = React.useCallback((recherche: string) => {
     api<{ sessions: SessionPassee[]; count: number; size: number; audio_size: number }>(`/api/history${recherche.trim() ? `?q=${encodeURIComponent(recherche.trim())}` : ""}`)
-      .then((r) => { setSessions(r.sessions); setPlace({ count: r.count, size: r.size, audio_size: r.audio_size }); })
+      .then((r) => {
+        setSessions(r.sessions);
+        setPlace({ count: r.count, size: r.size, audio_size: r.audio_size });
+        if (!defilementRendu.current) { // retour d'une transcription : la liste revient où on l'avait laissée
+          defilementRendu.current = true;
+          requestAnimationFrame(() => window.scrollTo({ top: memoire.defilement }));
+        }
+      })
       .catch((e) => setErreur(messageErreur(e)));
   }, []);
   React.useEffect(() => {
@@ -106,6 +118,7 @@ const Liste: React.FC = () => {
   }, [q, charger]);
   React.useEffect(() => {
     if (!menu) return;
+    document.querySelector<HTMLElement>("[data-menu-session] [role=menuitem]")?.focus();
     const fermer = (e: MouseEvent | KeyboardEvent) => {
       if (e instanceof KeyboardEvent) { if (e.key === "Escape") setMenu(null); return; }
       if (!(e.target as HTMLElement).closest("[data-menu-session]")) setMenu(null);
@@ -119,8 +132,10 @@ const Liste: React.FC = () => {
     setErreur("");
     try { await f(); } catch (e) { setErreur(messageErreur(e)); }
   };
-  const ouvrir = (id: string, recuperer = false) => { window.location.hash = `#/historique/${id}${recuperer ? "?recuperer" : ""}`; };
-  const dossier = (id: string) => faire(() => api(`/api/history/${id}/folder`, { method: "POST" }));
+  const ouvrir = (id: string, recuperer = false) => {
+    memoire.defilement = window.scrollY;
+    window.location.hash = `#/historique/${id}${recuperer ? "?recuperer" : ""}`;
+  };
   const supprimer = (id: string) => faire(async () => {
     await api(`/api/history/${id}`, { method: "DELETE" });
     setASupprimer(null);
@@ -235,14 +250,18 @@ const Liste: React.FC = () => {
                         onKeyDown={(e) => { if (e.key === "Enter") renommer(s, e.currentTarget.value); if (e.key === "Escape") setRenomme(null); }} />
                     ) : (
                       <>
-                        <h2 className="m-0 text-[16px] font-medium text-ink">{titre}</h2>
+                        <h2 className="m-0 text-[16px] font-medium text-ink">
+                          {s.interrupted ? titre : (
+                            <a href={`#/historique/${s.id}`} onClick={() => { memoire.defilement = window.scrollY; }}
+                              className="text-ink no-underline hover:text-accent hover:underline">{titre}</a>
+                          )}
+                        </h2>
                         {!s.interrupted && (
                           <button type="button" className="nn-icon-btn h-7 w-7" aria-label={`Renommer « ${titre} »`} onClick={() => setRenomme(s.id)}><Crayon /></button>
                         )}
                       </>
                     )}
                     {s.interrupted && <span className="nn-chip nn-chip-warning">Interrompue</span>}
-                    {s.current && <span className="nn-chip">Ouverte</span>}
                   </div>
                   {s.interrupted ? (
                     <span className="text-[13px] text-ink-muted">L'application s'est fermée pendant l'enregistrement. {conserve(s)}</span>
@@ -274,17 +293,15 @@ const Liste: React.FC = () => {
                   </div>
                 ) : (
                   <div className="flex gap-2">
-                    {!s.interrupted ? <button type="button" className="nn-btn nn-btn-primary" onClick={() => ouvrir(s.id)}>Rouvrir</button>
+                    {!s.interrupted ? <button type="button" className="nn-btn nn-btn-primary" onClick={() => ouvrir(s.id)}>Ouvrir</button>
                       : s.recoverable ? <button type="button" className="nn-btn nn-btn-primary" onClick={() => ouvrir(s.id, true)}>Récupérer le texte</button> : null}
-                    <div className="relative" data-menu-session>
+                    {((!s.interrupted && s.audio) || !s.current) && <div className="relative" data-menu-session>
                       <button type="button" className="nn-btn nn-btn-secondary w-10 px-0" aria-label={`Plus d'actions pour « ${titre} »`} aria-haspopup="menu"
                         aria-expanded={menu === s.id} onClick={() => setMenu(menu === s.id ? null : s.id)}>
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="2" /><circle cx="12" cy="12" r="2" /><circle cx="19" cy="12" r="2" /></svg>
                       </button>
                       {menu === s.id && (
                         <div role="menu" className="absolute right-0 top-11 z-20 w-[260px] rounded-md border border-line bg-surface p-1.5 shadow-lg">
-                          <button type="button" role="menuitem" autoFocus className="block w-full rounded border-0 bg-transparent px-2.5 py-2 text-left text-sm text-ink hover:bg-surface-3 focus:bg-surface-3 focus:outline-none"
-                            onClick={() => { setMenu(null); dossier(s.id); }}>Ouvrir le dossier</button>
                           {!s.interrupted && s.audio && (
                             <button type="button" role="menuitem" className="block w-full rounded border-0 bg-transparent px-2.5 py-2 text-left text-sm text-ink hover:bg-surface-3 focus:bg-surface-3 focus:outline-none"
                               onClick={() => { setMenu(null); setSansAudio(s.id); }}>Supprimer l'audio, garder le texte</button>
@@ -295,7 +312,7 @@ const Liste: React.FC = () => {
                           )}
                         </div>
                       )}
-                    </div>
+                    </div>}
                   </div>
                 )}
               </li>
