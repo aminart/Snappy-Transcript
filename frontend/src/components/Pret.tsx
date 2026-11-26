@@ -52,6 +52,58 @@ const Ligne: React.FC<{
   </div>
 );
 
+/** Interrupteur on/off (role="switch") : pour une option qui s'applique tout de suite, plutôt qu'une case à cocher. */
+export const Interrupteur: React.FC<{ actif: boolean; changer: (v: boolean) => void; nom: string; desactive?: boolean }> = ({ actif, changer, nom, desactive }) => (
+  <button type="button" role="switch" aria-checked={actif} aria-label={nom} disabled={desactive} onClick={() => changer(!actif)}
+    className="group flex items-center gap-2 rounded-full border-0 bg-transparent p-0 text-sm text-ink-body focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-focus disabled:cursor-not-allowed disabled:opacity-50">
+    <span className={`relative inline-flex h-[22px] w-[40px] shrink-0 items-center rounded-full transition-colors ${actif ? "bg-primary" : "bg-line-strong"}`} aria-hidden="true">
+      <span className={`absolute left-[3px] h-4 w-4 rounded-full bg-white shadow-sm transition-transform ${actif ? "translate-x-[18px]" : ""}`} />
+    </span>
+    <span className="w-[66px] text-left" aria-hidden="true">{actif ? "Activé" : "Désactivé"}</span>
+  </button>
+);
+
+/** Combien de personnes parlent ? « Je ne sais pas » (0 : l'app devine), 2 à 5, ou « 6 et plus » avec un compteur. */
+const NombrePersonnes: React.FC<{ valeur: number; changer: (n: number) => void; desactive?: boolean }> = ({ valeur, changer, desactive }) => {
+  const choix = [
+    { n: 0, label: "Je ne sais pas" }, { n: 2, label: "2" }, { n: 3, label: "3" }, { n: 4, label: "4" }, { n: 5, label: "5" }, { n: 6, label: "6 et plus" },
+  ];
+  const actif = valeur >= 6 ? 6 : valeur === 1 ? 2 : valeur;
+  const boutons = React.useRef<(HTMLButtonElement | null)[]>([]);
+  const clavier = (e: React.KeyboardEvent, i: number) => {
+    if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(e.key)) return;
+    e.preventDefault();
+    const j = (i + (e.key === "ArrowLeft" || e.key === "ArrowUp" ? -1 : 1) + choix.length) % choix.length;
+    changer(choix[j].n); boutons.current[j]?.focus();
+  };
+  const pastille = (coche: boolean) => `h-8 whitespace-nowrap rounded-md border px-3 text-[13px] transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus disabled:cursor-not-allowed disabled:opacity-50
+    ${coche ? "border-accent bg-accent-soft font-medium text-accent-ink" : "border-line-strong bg-surface text-ink-body hover:bg-surface-2"}`;
+  return (
+    <div className="flex flex-col gap-2">
+      <span id="personnes-label" className="text-sm font-medium text-ink">Combien de personnes vont parler ?</span>
+      <div className="flex flex-wrap items-center gap-1.5">
+        <div role="radiogroup" aria-labelledby="personnes-label" className="flex flex-wrap gap-1.5">
+          {choix.map((c, i) => (
+            <button key={c.n} ref={(el) => { boutons.current[i] = el; }} type="button" role="radio" aria-checked={actif === c.n}
+              tabIndex={actif === c.n ? 0 : -1} disabled={desactive} className={`${pastille(actif === c.n)} ${c.n >= 2 && c.n <= 5 ? "min-w-[36px] px-0" : ""}`}
+              onClick={() => changer(c.n === 6 ? Math.max(6, valeur) : c.n)} onKeyDown={(e) => clavier(e, i)}>{c.label}</button>
+          ))}
+        </div>
+        {valeur >= 6 && (
+          <span className="ml-1 flex items-center gap-1" role="group" aria-label="Nombre de personnes">
+            <button type="button" className="nn-btn nn-btn-secondary h-8 w-8 p-0" aria-label="Une personne de moins" disabled={desactive || valeur <= 6} onClick={() => changer(valeur - 1)}>−</button>
+            <span className="min-w-[28px] text-center text-sm font-medium tabular-nums text-ink" aria-live="polite">{valeur}</span>
+            <button type="button" className="nn-btn nn-btn-secondary h-8 w-8 p-0" aria-label="Une personne de plus" disabled={desactive || valeur >= 20} onClick={() => changer(valeur + 1)}>+</button>
+          </span>
+        )}
+      </div>
+      <span className="text-[13px] text-ink-muted">
+        {valeur ? "Le nombre exact aide à ne pas mélanger deux voix proches." : "Snappy trouvera combien de personnes ont parlé."}
+      </span>
+    </div>
+  );
+};
+
 const EtatSon: React.FC<{ mesure?: MesureSource; ok: string; attente: string }> = ({ mesure, ok, attente }) => {
   if (!mesure) return <span className="text-[12px] text-ink-subtle">Vérification…</span>;
   if (mesure.error) return <span className="nn-chip nn-chip-warning">Source indisponible</span>;
@@ -194,13 +246,9 @@ export const Pret: React.FC<Props> = ({ reglages: r, regler, ecoute, capacites, 
           {ecoute !== "app" && ecoute !== "tout" && (
             <Ligne id="micro" label="Microphone" ouvert={ouvert === "micro"} basculer={basculer("micro")} bloque={occupe || entrees.length === 0}
               fin={micChoisi && <EtatSon mesure={apercu?.voix} ok="On vous entend" attente="Parlez pour tester" />}
-              aide={ecoute !== "voix" && systemeOk ? <span>Avec des haut-parleurs, le micro réentend vos interlocuteurs : un casque évite les doublons.</span> : undefined}
               editeur={
                 <fieldset className="m-0 flex flex-col gap-2 border-0 p-0">
-                  <legend className="mb-1 p-0 text-[13px] leading-snug text-ink-muted">
-                    Choisissez un micro puis parlez : la barre verte doit bouger. Sinon, essayez le suivant.
-                    Un casque s'appelle souvent « Casque », « Headset » ou porte sa marque.
-                  </legend>
+                  <legend className="sr-only">Microphone</legend>
                   <div className="flex flex-col gap-1">
                     {entrees.map((d) => {
                       const coche = d.name === micChoisi?.name;
@@ -248,8 +296,9 @@ export const Pret: React.FC<Props> = ({ reglages: r, regler, ecoute, capacites, 
         <span className={r.glossary.trim() ? "text-ink-body" : "text-ink-subtle"}>{r.glossary.trim() || "Aucun"}</span>
       </Ligne>
 
-      <Ligne id="intervenants" label="Intervenants" action={diarisationDispo ? "Préciser" : "Comment l'ajouter ?"} ouvert={ouvert === "intervenants"}
-        basculer={!diarisationDispo || r.diarization ? basculer("intervenants") : undefined}
+      <Ligne id="intervenants" label="Intervenants" action="Comment l'ajouter ?"
+        ouvert={diarisationDispo ? r.diarization : ouvert === "intervenants"}
+        basculer={diarisationDispo ? undefined : basculer("intervenants")}
         bloque={occupe && diarisationDispo}
         aide={diarisationDispo && r.diarization && !pipelineOk ? (
           <span className="flex flex-wrap items-center gap-x-2 gap-y-1 text-warning-text">
@@ -258,8 +307,8 @@ export const Pret: React.FC<Props> = ({ reglages: r, regler, ecoute, capacites, 
           </span>
         ) : undefined}
         fin={diarisationDispo && (
-          <label className="nn-check text-sm"><input type="checkbox" checked={r.diarization} disabled={occupe}
-            onChange={(e) => regler("diarization", e.target.checked)} /> <span>Activé</span></label>
+          <Interrupteur actif={r.diarization} changer={(v) => regler("diarization", v)} desactive={occupe}
+            nom="Identifier qui parle" />
         )}
         editeur={!diarisationDispo ? (
           <div className="flex max-w-[560px] flex-col gap-2 rounded-md border border-line bg-surface-2 px-4 py-3 text-[13px] leading-snug text-ink-body">
@@ -271,15 +320,12 @@ export const Pret: React.FC<Props> = ({ reglages: r, regler, ecoute, capacites, 
             </ol>
           </div>
         ) : (
-          <Champ id="locuteurs" label="Nombre d'intervenants (0 = je ne sais pas)">
-            <input id="locuteurs" type="number" min={0} max={20} className="nn-input max-w-[120px]" value={r.speaker_hint}
-              onChange={(e) => regler("speaker_hint", Math.max(0, Math.min(20, Math.floor(Number(e.target.value) || 0))))} />
-          </Champ>
+          <NombrePersonnes valeur={r.speaker_hint} changer={(n) => regler("speaker_hint", n)} desactive={occupe} />
         )}>
         <span className="text-ink-body">
           {!diarisationDispo ? "Non incluse dans cette installation"
-            : !r.diarization ? "Non identifiés"
-            : `Identifiés après l'arrêt · ${r.speaker_hint ? `${r.speaker_hint} personne${r.speaker_hint > 1 ? "s" : ""}` : "nombre inconnu"}`}
+            : !r.diarization ? "Le texte ne dira pas qui parle"
+            : "Qui a dit quoi, identifié après l'arrêt"}
         </span>
       </Ligne>
 
