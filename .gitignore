@@ -18,3 +18,7 @@ models_local/
 modeles/
 *.bin
 *.safetensors
+
+# Fichiers CUDA (cuBLAS, cuDNN) pour une installation hors ligne : environ 1 Go
+wheels/
+*.whl

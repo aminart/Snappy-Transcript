@@ -3,15 +3,19 @@ setlocal
 rem Installe Snappy Transcript pour le tester sur ce poste (une seule fois, puis start.bat).
 rem   install.bat                               installation normale
 rem   install.bat intervenants                  + identification des intervenants (PyTorch, pyannote : plus de 1 Go)
+rem   install.bat gpu                           + calcul sur carte graphique NVIDIA (cuBLAS et cuDNN, environ 1 Go)
+rem        sans Internet : deposez d'abord les fichiers nvidia_cublas_cu12-*.whl et nvidia_cudnn_cu12-*.whl
+rem        dans le dossier "wheels" a cote de ce fichier
 rem   install.bat "C:\...\companyCA.crt"        derriere le proxy de l'entreprise (certificat)
-rem Les options se combinent : install.bat intervenants "C:\...\companyCA.crt"
+rem Les options se combinent : install.bat gpu intervenants "C:\...\companyCA.crt"
 rem Prerequis : Python 3.11+ et Node.js 20+ dans le PATH.
 cd /d "%~dp0"
 
 set "CERT="
 set "AVEC_INTERVENANTS="
+set "AVEC_GPU="
 for %%A in (%*) do (
-    if /I "%%~A"=="intervenants" (set "AVEC_INTERVENANTS=1") else set "CERT=%%~A"
+    if /I "%%~A"=="intervenants" (set "AVEC_INTERVENANTS=1") else if /I "%%~A"=="gpu" (set "AVEC_GPU=1") else set "CERT=%%~A"
 )
 set "PIP_CERT_OPT="
 if not "%CERT%"=="" (
@@ -43,6 +47,8 @@ echo [2/3] Dependances Python (transcription comprise, quelques minutes la premi
 if errorlevel 1 goto :erreur
 if defined AVEC_INTERVENANTS call :intervenants
 if errorlevel 1 goto :erreur
+if defined AVEC_GPU call :gpu
+if errorlevel 1 goto :erreur
 
 echo [3/3] Interface...
 pushd frontend
@@ -62,6 +68,7 @@ echo.
 echo Installation terminee. Lancez start.bat pour ouvrir Snappy Transcript.
 echo Sans modele de transcription : Reglages avances, Moteur "Simulation".
 if not defined AVEC_INTERVENANTS echo Pour identifier les intervenants : install.bat intervenants
+if not defined AVEC_GPU echo Avec une carte graphique NVIDIA : install.bat gpu
 echo.
 pause
 exit /b 0
@@ -70,6 +77,25 @@ exit /b 0
 echo [2b] Identification des intervenants : PyTorch et pyannote, plus de 1 Go, plusieurs minutes...
 .venv\Scripts\python.exe -m pip install -r backend\requirements-diarization.txt %PIP_CERT_OPT%
 exit /b %errorlevel%
+
+:gpu
+rem Les fichiers deposes dans "wheels" sont utilises en priorite (poste sans acces a Internet) ;
+rem sinon les memes paquets sont telecharges (versions validees de backend\requirements-gpu.txt).
+if exist "wheels\nvidia_cu*.whl" (
+    echo [2c] Carte graphique NVIDIA : installation depuis le dossier wheels...
+    .venv\Scripts\python.exe -m pip install --no-index --find-links wheels nvidia-cublas-cu12 nvidia-cudnn-cu12
+) else (
+    echo [2c] Carte graphique NVIDIA : telechargement de cuBLAS et cuDNN, environ 1 Go...
+    .venv\Scripts\python.exe -m pip install -r backend\requirements-gpu.txt %PIP_CERT_OPT%
+)
+if errorlevel 1 (
+    echo Les fichiers CUDA ne se sont pas installes. Hors ligne, il faut les deux fichiers .whl :
+    echo nvidia_cublas_cu12-...-win_amd64.whl et nvidia_cudnn_cu12-...-win_amd64.whl, dans le dossier wheels.
+    exit /b 1
+)
+echo      Verification de la carte graphique...
+.venv\Scripts\python.exe -c "import sys; sys.path.insert(0, 'backend'); from snappy.transcription.cuda_runtime import prepare_cuda_runtime as p; s = p(); print('      ' + (s.message or s.detail))"
+exit /b 0
 
 :erreur
 echo.

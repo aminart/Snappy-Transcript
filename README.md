@@ -106,7 +106,11 @@ dossier d'un modèle déjà converti (CTranslate2 : `config.json`, `model.bin`, 
 
 ### GPU NVIDIA (Windows, optionnel)
 
-`pip install -r backend/requirements-gpu.txt` installe cuBLAS 12 et cuDNN 9 dans le venv (pas de CUDA Toolkit système).
+**`install.bat gpu`** installe cuBLAS 12 et cuDNN 9 dans le venv (pas de CUDA Toolkit système, environ 1 Go).
+**Sans Internet** : déposez d'abord les deux fichiers `nvidia_cublas_cu12-…-win_amd64.whl` et
+`nvidia_cudnn_cu12-…-win_amd64.whl` dans un dossier **`wheels`** à la racine du projet (à côté de `install.bat`) ;
+ils sont alors utilisés à la place du téléchargement (dossier ignoré par git). Versions validées :
+`backend/requirements-gpu.txt`. À la fin, l'installation affiche si la carte graphique est prête.
 L'app les expose à son seul processus. **Automatique** essaie le GPU puis retombe sur le CPU ; **GPU NVIDIA** affiche une
 erreur si CUDA n'est pas prêt ; **CPU** sert au diagnostic.
 
