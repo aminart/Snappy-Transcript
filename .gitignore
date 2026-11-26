@@ -22,3 +22,4 @@ modeles/
 # Fichiers CUDA (cuBLAS, cuDNN) pour une installation hors ligne : environ 1 Go
 wheels/
 *.whl
+!backend/vendor/*.whl

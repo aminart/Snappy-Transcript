@@ -15,6 +15,7 @@ call .venv\Scripts\activate.bat
 
 echo [1/3] Dependances Python...
 python -m pip install --upgrade pip
+pip install --no-index --find-links backend\vendor comtypes psutil
 pip install -r backend\requirements-stt.txt pyinstaller
 if errorlevel 1 goto :erreur
 for %%o in (%*) do (

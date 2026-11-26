@@ -43,6 +43,9 @@ if not exist .venv\Scripts\python.exe (
 
 echo [2/3] Dependances Python (transcription comprise, quelques minutes la premiere fois)...
 .venv\Scripts\python.exe -m pip install --upgrade pip %PIP_CERT_OPT% >nul
+rem comtypes et psutil (son d'une application) sont fournis avec le projet : rien a telecharger pour eux,
+rem meme si le miroir ou le proxy de l'entreprise ne les propose pas.
+.venv\Scripts\python.exe -m pip install --no-index --find-links backend\vendor comtypes psutil >nul 2>nul
 .venv\Scripts\python.exe -m pip install -r requirements-dev.txt %PIP_CERT_OPT%
 if errorlevel 1 goto :erreur
 if defined AVEC_INTERVENANTS call :intervenants
