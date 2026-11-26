@@ -6,7 +6,7 @@ import { Champ, Verifie } from "./ui";
 export interface MesureSource { level: number; heard: boolean; error: string }
 export interface Apercu { active: boolean; voix?: MesureSource; autre?: MesureSource; erreur?: string }
 
-const LANGUES: Record<Settings["language"], string> = { fr: "Français", en: "Anglais", auto: "Détection automatique" };
+const LANGUES: Record<Settings["language"], string> = { auto: "Détection automatique", fr: "Français", en: "Anglais" };
 const ACCELERATIONS: { id: Acceleration; label: string }[] = [
   { id: "auto", label: "Automatique" },
   { id: "gpu", label: "GPU NVIDIA" },

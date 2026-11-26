@@ -22,7 +22,7 @@ DEFAULTS: dict[str, Any] = {
     "model_path": "",                # modèle choisi sur ce poste (seulement si use_own_model)
     "use_own_model": False,          # False : modèle de l'équipe, fourni par Studio Dock
     "acceleration": "auto",          # auto | gpu | cpu
-    "language": "fr",                # fr | en | auto
+    "language": "auto",              # auto | fr | en
     "glossary": "",
     "chunk_seconds": 5,
     "overlap_seconds": 0.75,
