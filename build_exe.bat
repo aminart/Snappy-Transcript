@@ -3,6 +3,7 @@ setlocal
 rem Fabrique dist\<NomDuProgramme>.exe. Prerequis : Python 3.11+ et Node.js 20+ dans le PATH.
 rem   build_exe.bat              exe avec transcription faster-whisper (CPU, et GPU si les DLL sont deja installees)
 rem   build_exe.bat gpu          + runtimes CUDA (cuBLAS, cuDNN) : exe beaucoup plus gros
+rem                              (hors ligne : fichiers nvidia_*.whl dans le dossier wheels)
 rem   build_exe.bat diarisation  + pyannote et PyTorch (diarisation des locuteurs) : exe tres gros
 rem   Les options se combinent : build_exe.bat gpu diarisation
 
@@ -14,10 +15,11 @@ call .venv\Scripts\activate.bat
 
 echo [1/3] Dependances Python...
 python -m pip install --upgrade pip
+pip install --no-index --find-links backend\vendor comtypes psutil
 pip install -r backend\requirements-stt.txt pyinstaller
 if errorlevel 1 goto :erreur
 for %%o in (%*) do (
-    if /I "%%o"=="gpu" pip install -r backend\requirements-gpu.txt
+    if /I "%%o"=="gpu" if exist "wheels\nvidia_cu*.whl" (pip install --no-index --find-links wheels nvidia-cublas-cu12 nvidia-cudnn-cu12) else (pip install -r backend\requirements-gpu.txt)
     if /I "%%o"=="diarisation" pip install -r backend\requirements-diarization.txt
 )
 if errorlevel 1 goto :erreur
