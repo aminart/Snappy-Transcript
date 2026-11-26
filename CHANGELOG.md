@@ -2,9 +2,10 @@
 
 ## [Non publié]
 
+## [0.3.0] — 2026-11-26
+
 - Langue : « Détection automatique » par défaut (et en tête de la liste). Un poste qui a déjà enregistré ses réglages
   garde sa langue.
-
 - « Démarrer l'enregistrement » centré sur la hauteur de la carte (en haut quand les réglages avancés sont ouverts).
 - Intervenants : interrupteur (au lieu d'une case à cocher) ; la question « Combien de personnes vont parler ? » est
   affichée dès que l'option est activée, avec « Je ne sais pas », 2 à 5 ou « 6 et plus » (compteur jusqu'à 20),
