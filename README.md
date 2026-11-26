@@ -146,9 +146,21 @@ vient de Studio Dock) ; avec `leger`, l'interface signale qu'elle manque. Sur Ma
 
 Dans Studio Dock, **Préparer pour l'équipe › Applications** : type « S'ouvre dans le navigateur » (et non plus une app
 tierce sur `localhost`), identifiant `snappy-transcript`, programme `SnappyTranscript`, port **8110**, icône
-`icone/app.svg`, puis la fiche (à quoi elle sert, prise en main). Déposez `SnappyTranscript-0.1.0.exe` dans le sous-dossier
-de l'app du dossier de l'équipe. Nouvelle version : noter les changements dans `CHANGELOG.md`,
-`python scripts/bump_version.py 0.2.0`, fabriquer l'exe.
+`icone/app.svg`, puis la fiche (à quoi elle sert, prise en main). Déposez `SnappyTranscript-X.Y.Z.exe` (dernière release
+GitHub du dépôt, ou le zip si le téléchargement d'un .exe est bloqué) dans le sous-dossier de l'app du dossier de
+l'équipe. Les modèles (transcription, intervenants) ne sont pas dans l'exe : Studio Dock les fournit.
+
+### Publier une version
+
+1. Noter les changements dans `CHANGELOG.md` (section « Non publié »), puis `python scripts/bump_version.py X.Y.Z`
+   (ou `patch` / `minor` / `major`) et fusionner dans `main`.
+2. Créer la release GitHub avec le tag **`vX.Y.Z`** (exactement `v` + la version). Quelques minutes plus tard
+   (environ 20), `SnappyTranscript-X.Y.Z.exe` et `SnappyTranscript-X.Y.Z-windows.zip` sont joints à la release
+   (workflow « Build Windows exe » : interface, exe avec intervenants, `--check`, `/health`).
+3. Déposer l'exe dans Studio Dock comme ci-dessus.
+
+`SnappyTranscript.exe --check` liste les briques embarquées (transcription, fichiers, micro, son du PC, intervenants)
+et dit laquelle ne se charge pas : utile si une installation se comporte bizarrement.
 
 ## Organisation du code
 

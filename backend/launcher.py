@@ -56,11 +56,37 @@ def lire_options(argv: list[str] | None) -> argparse.Namespace:
     parser.add_argument("--port", type=int, default=None, help=f"port d'écoute (défaut {DEFAULT_PORT})")
     parser.add_argument("--no-browser", action="store_true", help="ne pas ouvrir le navigateur (lancement par Studio Dock)")
     parser.add_argument("--version", action="version", version=f"{APP_NAME} {VERSION}")
+    parser.add_argument("--check", action="store_true",
+                        help="vérifier que les briques embarquées se chargent (transcription, fichiers, intervenants), puis quitter")
     return parser.parse_args(argv)
+
+
+def verifier() -> int:
+    """Charge réellement chaque brique (un import qui réussit hors exe peut échouer une fois empaqueté)."""
+    import importlib
+
+    briques = [("Transcription", "faster_whisper"), ("Moteur", "ctranslate2"), ("Fichiers audio et vidéo", "av"),
+               ("Micro", "sounddevice"), ("Interface web", "main")]
+    if sys.platform == "win32":
+        briques += [("Son du PC", "soundcard"), ("Son d'une application", "comtypes"), ("Processus", "psutil")]
+    facultatives = [("Intervenants", "pyannote.audio"), ("Intervenants (PyTorch)", "torch")]
+    echecs = 0
+    for nom, module, requis in [(n, m, True) for n, m in briques] + [(n, m, False) for n, m in facultatives]:
+        try:
+            importlib.import_module(module)
+            if module == "pyannote.audio":
+                from pyannote.audio import Pipeline  # noqa: F401 — ce que l'identification utilise vraiment
+            print(f"OK      {nom}")
+        except Exception as e:  # noqa: BLE001 — on veut le message, quel qu'il soit
+            echecs += requis
+            print(f"{'ÉCHEC' if requis else 'absent'}  {nom} : {type(e).__name__}: {e}")
+    return 1 if echecs else 0
 
 
 def main(argv: list[str] | None = None) -> None:
     options = lire_options(argv)
+    if options.check:
+        sys.exit(verifier())
     port = options.port or DEFAULT_PORT
     url = f"http://{HOTE}:{port}"
 
