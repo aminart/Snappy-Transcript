@@ -124,7 +124,7 @@ class DemandeDemarrage(BaseModel):
     app: str = Field("", max_length=260)
     model_path: str = ""
     acceleration: Literal["auto", "gpu", "cpu"] = "auto"
-    language: Literal["fr", "en", "auto"] = "fr"
+    language: Literal["fr", "en", "auto"] = "auto"
     glossary: str = ""
     chunk_seconds: int = Field(5, ge=3, le=15)
     overlap_seconds: float = Field(0.75, ge=0, le=2)

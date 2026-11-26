@@ -380,3 +380,7 @@ def test_envoyer_a_docanalyser(client, monkeypatch):
     monkeypatch.setenv("DOCANALYSER_URL", "http://127.0.0.1:9")
     r = client.post("/api/session/docanalyser")
     assert r.status_code == 503 and "Studio Dock" in r.json()["detail"]
+
+
+def test_langue_par_defaut_detection_automatique(client):
+    assert client.get("/api/settings").json()["language"] == "auto"

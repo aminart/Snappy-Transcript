@@ -54,7 +54,7 @@ class StartParams:
     app: str = ""                        # programme dont on capte le son (« ms-teams.exe ») ; vide : tout le son
     model_path: str = ""
     acceleration: str = "auto"
-    language: str = "fr"
+    language: str = "auto"
     glossary: str = ""
     chunk_seconds: int = 5
     overlap_seconds: float = 0.75
