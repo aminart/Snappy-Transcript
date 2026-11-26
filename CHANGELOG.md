@@ -2,6 +2,11 @@
 
 ## [Non publié]
 
+## [0.2.0] — 2026-11-26
+
+- Exe fabriqué par GitHub à chaque release (`SnappyTranscript-X.Y.Z.exe` et un zip joints à la release), avec
+  l'identification des intervenants ; `SnappyTranscript.exe --check` vérifie que chaque brique se charge.
+
 - « Exporter › Envoyer à DocAnalyser » : la transcription (titre, date, durée, intervenants, puis le texte horodaté
   avec les noms) est déposée dans DocAnalyser, qui s'ouvre dans un nouvel onglet sur « Synthèse de transcription »,
   prête à lancer. DocAnalyser doit être lancé (Studio Dock) ; adresse http://127.0.0.1:8020, ou `DOCANALYSER_URL`.
