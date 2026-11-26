@@ -2,20 +2,21 @@
 setlocal
 rem Installe Snappy Transcript pour le tester sur ce poste (une seule fois, puis start.bat).
 rem   install.bat                               installation normale
-rem   install.bat intervenants                  + identification des intervenants (PyTorch, pyannote : plus de 1 Go)
+rem   (l'identification des intervenants est incluse : PyTorch et pyannote, environ 1 Go de plus)
+rem   install.bat leger                         sans l'identification des intervenants (installation plus rapide)
 rem   install.bat gpu                           + calcul sur carte graphique NVIDIA (cuBLAS et cuDNN, environ 1 Go)
 rem        sans Internet : deposez d'abord les fichiers nvidia_cublas_cu12-*.whl et nvidia_cudnn_cu12-*.whl
 rem        dans le dossier "wheels" a cote de ce fichier
 rem   install.bat "C:\...\companyCA.crt"        derriere le proxy de l'entreprise (certificat)
-rem Les options se combinent : install.bat gpu intervenants "C:\...\companyCA.crt"
+rem Les options se combinent : install.bat gpu "C:\...\companyCA.crt"
 rem Prerequis : Python 3.11+ et Node.js 20+ dans le PATH.
 cd /d "%~dp0"
 
 set "CERT="
-set "AVEC_INTERVENANTS="
+set "AVEC_INTERVENANTS=1"
 set "AVEC_GPU="
 for %%A in (%*) do (
-    if /I "%%~A"=="intervenants" (set "AVEC_INTERVENANTS=1") else if /I "%%~A"=="gpu" (set "AVEC_GPU=1") else set "CERT=%%~A"
+    if /I "%%~A"=="intervenants" (set "AVEC_INTERVENANTS=1") else if /I "%%~A"=="leger" (set "AVEC_INTERVENANTS=") else if /I "%%~A"=="gpu" (set "AVEC_GPU=1") else set "CERT=%%~A"
 )
 set "PIP_CERT_OPT="
 if not "%CERT%"=="" (
@@ -49,7 +50,14 @@ rem meme si le miroir ou le proxy de l'entreprise ne les propose pas.
 .venv\Scripts\python.exe -m pip install -r requirements-dev.txt %PIP_CERT_OPT%
 if errorlevel 1 goto :erreur
 if defined AVEC_INTERVENANTS call :intervenants
-if errorlevel 1 goto :erreur
+if errorlevel 1 (
+    rem Module optionnel : son echec n'empeche pas de transcrire
+    echo.
+    echo Attention : l'identification des intervenants ne s'est pas installee ^(voir le message ci-dessus^).
+    echo La transcription fonctionne sans. Pour reessayer plus tard : relancez install.bat.
+    echo.
+    set "AVEC_INTERVENANTS="
+)
 if defined AVEC_GPU call :gpu
 if errorlevel 1 goto :erreur
 
@@ -70,7 +78,7 @@ popd
 echo.
 echo Installation terminee. Lancez start.bat pour ouvrir Snappy Transcript.
 echo Sans modele de transcription : Reglages avances, Moteur "Simulation".
-if not defined AVEC_INTERVENANTS echo Pour identifier les intervenants : install.bat intervenants
+if not defined AVEC_INTERVENANTS echo Pour identifier aussi les intervenants : install.bat (sans "leger")
 if not defined AVEC_GPU echo Avec une carte graphique NVIDIA : install.bat gpu
 echo.
 pause

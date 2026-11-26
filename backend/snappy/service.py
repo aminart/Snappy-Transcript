@@ -114,9 +114,21 @@ def _diarize(wav: Path, segments: list[TranscriptSegment], model_path: str, spea
         return diarize_wav_file(wav, segments, model_path, progress_callback=job.progress, **kwargs)
 
 
+def _chemin_pipeline(path: str) -> str:
+    """Dossier du modèle d'identification des intervenants : celui choisi sur ce poste, sinon celui de l'équipe."""
+    if path.strip():
+        return path
+    equipe = team_diarization_model()
+    return equipe.path if equipe else ""
+
+
 def _validate_pipeline(path: str) -> str:
     from .diarization import validate_diarization_model
 
+    path = _chemin_pipeline(path)
+    if not path:
+        raise ServiceError("Aucun modèle d'identification des intervenants : Studio Dock n'en a pas installé sur ce poste "
+                           "(Réglages › Modèles d'IA), et aucun dossier n'est indiqué dans les réglages avancés.", 422)
     ok, detail = validate_diarization_model(path)
     if not ok:
         raise ServiceError(detail, 422)
@@ -774,8 +786,11 @@ class Manager:
         if not p.diarization:
             return False, "", ""
         from .diarization import validate_diarization_model
-        ok, detail = validate_diarization_model(p.diarization_model_path)
-        return (True, detail, "") if ok else (False, "", f"Diarisation non lancée : {detail}")
+        chemin = _chemin_pipeline(p.diarization_model_path)
+        if not chemin:
+            return False, "", "Intervenants non identifiés : aucun modèle d'identification sur ce poste (voir Réglages avancés)."
+        ok, detail = validate_diarization_model(chemin)
+        return (True, detail, "") if ok else (False, "", f"Intervenants non identifiés : {detail}")
 
     def _launch(self, live: Any, stamp: str, p: StartParams, provider: Any) -> dict[str, Any]:
         wanted, model, note = self._diarization_choice(p)
@@ -1097,6 +1112,15 @@ class Manager:
                 s.live.stop()
             except Exception:
                 log.exception("Arrêt de la session à la fermeture")
+
+
+def team_diarization_model():
+    """Modèle d'identification des intervenants installé par Studio Dock (studiodock_ia.intervenants()), ou None."""
+    try:
+        import studiodock_ia
+        return studiodock_ia.intervenants()
+    except Exception:
+        return None
 
 
 def team_model():

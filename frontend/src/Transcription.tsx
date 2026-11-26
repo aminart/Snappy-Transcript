@@ -245,6 +245,7 @@ export const Transcription: React.FC = () => {
   const [peripheriques, setPeripheriques] = React.useState<Devices | null>(null);
   const [cuda, setCuda] = React.useState<Cuda | null>(null);
   const [equipe, setEquipe] = React.useState<ModeleEquipe | null | undefined>(undefined);
+  const [equipeIntervenants, setEquipeIntervenants] = React.useState<ModeleEquipe | null>(null);
   const [erreur, setErreur] = React.useState("");
   const [demarrage, setDemarrage] = React.useState(false);
   const [choix, setChoix] = React.useState<ChoixFichier>(null);
@@ -255,7 +256,8 @@ export const Transcription: React.FC = () => {
   React.useEffect(() => {
     api<Capabilities>("/api/capabilities").then(setCapacites).catch(() => undefined);
     api<Cuda>("/api/cuda").then(setCuda).catch(() => undefined);
-    api<{ team: ModeleEquipe | null }>("/api/model").then((m) => setEquipe(m.team)).catch(() => setEquipe(null));
+    api<{ team: ModeleEquipe | null; team_diarization: ModeleEquipe | null }>("/api/model")
+      .then((m) => { setEquipe(m.team); setEquipeIntervenants(m.team_diarization); }).catch(() => setEquipe(null));
     actualiser();
   }, [actualiser]);
 
@@ -315,6 +317,7 @@ export const Transcription: React.FC = () => {
   const diarisationDispo = capacites?.diarization ?? false;
   const modeFichier = r.mode === "file";
   const modeleEquipe = !!equipe && !r.use_own_model;
+  const intervenantsEquipe = !!equipeIntervenants && !r.use_own_diarization_model;
   const moteurPret = r.engine === "mock" || (modeleOk && capacites?.stt !== false);
   const pret = modeFichier ? !!choix && (capacites?.files ?? false) : sourcePrete;
   const peutDemarrer = !occupe && !demarrage && !diarisationEnCours && pret && moteurPret;
@@ -322,7 +325,7 @@ export const Transcription: React.FC = () => {
   const options = () => ({
     engine: r.engine, model_path: modeleEquipe ? "" : r.model_path, acceleration: r.acceleration, language: r.language, glossary: r.glossary,
     vad_filter: r.vad_filter, save_audio: r.save_audio, diarization: r.diarization && diarisationDispo,
-    diarization_model_path: r.diarization_model_path, speaker_hint: r.speaker_hint,
+    diarization_model_path: intervenantsEquipe ? "" : r.diarization_model_path, speaker_hint: r.speaker_hint,
   });
 
   const transcrireFichier = async () => {
@@ -507,8 +510,8 @@ export const Transcription: React.FC = () => {
         <div className="flex flex-[2_1_520px] flex-col gap-1 px-7 pb-6 pt-7">
           <h2 className="m-0 mb-1 text-[19px] font-bold text-ink">Prêt ?</h2>
           <Pret reglages={r} regler={regler} ecoute={ecoute} ouvrirAvances={ouvrirAvances} capacites={capacites} peripheriques={peripheriques} applications={applications} apercu={apercu}
-            actualiser={actualiser} pipeline={pipeline} modeleOk={modeleOk} blocModele={blocModele} occupe={demarrage} />
-          <ReglagesAvances ouvert={avances} basculer={() => setAvances(!avances)} reglages={r} regler={regler} capacites={capacites} cuda={cuda} modeleOk={modeleOk} blocModele={blocModele} pipeline={pipeline} occupe={demarrage} />
+            actualiser={actualiser} pipeline={pipeline} intervenantsEquipe={equipeIntervenants} modeleOk={modeleOk} blocModele={blocModele} occupe={demarrage} />
+          <ReglagesAvances ouvert={avances} basculer={() => setAvances(!avances)} reglages={r} regler={regler} capacites={capacites} cuda={cuda} modeleOk={modeleOk} blocModele={blocModele} pipeline={pipeline} intervenantsEquipe={equipeIntervenants} occupe={demarrage} />
         </div>
       </section>
       {alertes}

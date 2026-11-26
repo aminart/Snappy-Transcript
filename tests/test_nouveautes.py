@@ -285,3 +285,34 @@ def test_audio_d_une_session_interrompue_protege(client):
     (d / f"recording_{sid}.wav").write_bytes(b"RIFF")
     assert client.delete(f"/api/history/{sid}/audio").status_code == 409
     assert client.post("/api/history/purge-audio", json={"days": 0}).json()["count"] == 0
+
+
+# --- Modèle d'identification des intervenants fourni par l'équipe (Studio Dock) --------------------------------
+
+def _pipeline(dossier):
+    for f in ("config.yaml", "embedding/pytorch_model.bin", "segmentation/pytorch_model.bin", "plda/plda.npz", "plda/xvec_transform.npz"):
+        (dossier / f).parent.mkdir(parents=True, exist_ok=True)
+        (dossier / f).write_text("x")
+    return dossier
+
+
+def test_modele_intervenants_de_l_equipe_utilise_d_office(client, tmp_path, monkeypatch):
+    ia = tmp_path / "ia"
+    ia.mkdir()
+    pipeline = _pipeline(tmp_path / "modeles" / "intervenants" / "pyannote-community-1")
+    (ia / "intervenants.json").write_text(json.dumps({"format": 1, "name": "Pyannote (équipe)", "version": "1.0.0", "path": str(pipeline)}))
+    monkeypatch.setenv("STUDIODOCK_IA", str(ia))
+    m = client.get("/api/model").json()
+    assert m["team_diarization"] == {"name": "Pyannote (équipe)", "version": "1.0.0", "path": str(pipeline)}
+    etat = client.post("/api/session/start", json={**DEMARRAGE, "diarization": True, "diarization_model_path": ""}).json()
+    assert etat["diarization"]["wanted"] and not etat["diarization"]["note"]
+    assert manager.current.diar_model_path == str(pipeline)
+    client.post("/api/session/stop")
+
+
+def test_sans_modele_intervenants_explique_quoi_faire(client, tmp_path, monkeypatch):
+    monkeypatch.setenv("STUDIODOCK_IA", str(tmp_path / "vide"))
+    assert client.get("/api/model").json()["team_diarization"] is None
+    etat = client.post("/api/session/start", json={**DEMARRAGE, "diarization": True, "diarization_model_path": ""}).json()
+    assert not etat["diarization"]["wanted"] and "aucun modèle d'identification" in etat["diarization"]["note"]
+    client.post("/api/session/stop")

@@ -30,6 +30,7 @@ DEFAULTS: dict[str, Any] = {
     "save_audio": True,
     "diarization": True,
     "diarization_model_path": "",
+    "use_own_diarization_model": False, # True : dossier indiqué ici plutôt que le modèle de l'équipe (Studio Dock)
     "speaker_hint": 0,
 }
 

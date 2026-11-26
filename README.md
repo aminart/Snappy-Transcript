@@ -56,10 +56,12 @@ Prérequis : Python 3.11+ et Node.js 20+.
 
 Sans modèle de transcription, choisissez **Réglages avancés › Moteur › Simulation** pour tout essayer.
 
-**Identifier les intervenants** (optionnel, plus de 1 Go) : `install.bat intervenants`, puis, dans
-**Réglages avancés**, le dossier d'un pipeline pyannote déjà sur le disque (par exemple
+**Identifier les intervenants** est inclus d'office (PyTorch et pyannote, environ 1 Go de plus ;
+`install.bat leger` pour s'en passer). Le modèle pyannote est fourni par l'équipe via **Studio Dock**
+(Réglages › Modèles d'IA › Identification des intervenants) : rien à régler. Sans Studio Dock, indiquez dans
+**Réglages avancés** le dossier d'un pipeline pyannote déjà sur le disque (par exemple
 `speaker-diarization-community-1`, avec `config.yaml`, `embedding\`, `segmentation\` et `plda\`). L'app ne
-télécharge aucun modèle et n'a besoin d'aucun jeton.
+télécharge aucun modèle et n'a besoin d'aucun jeton. Si son installation échoue, la transcription fonctionne quand même.
 
 Le design system Night Navy est inclus dans le dépôt (`frontend/vendor/night-navy-1.2.1.tgz`) : npm n'a pas besoin
 d'accéder à GitHub, souvent bloqué sur le réseau de l'entreprise. Pour passer à une nouvelle version de Night Navy :
@@ -72,8 +74,8 @@ Prérequis : Python 3.11 à 3.13 ([python.org](https://www.python.org/downloads/
 et Node.js 20+ ([nodejs.org](https://nodejs.org/), version LTS, ou `brew install node`).
 
 1. Dans le Terminal, dans le dossier du projet : **`./install.sh`** (une seule fois, quelques minutes).
-   Options : `./install.sh intervenants` pour l'identification des intervenants (Mac Apple Silicon uniquement :
-   PyTorch n'est plus publié pour les Mac Intel), `./install.sh /chemin/companyCA.crt` derrière le proxy de l'entreprise.
+   L'identification des intervenants est incluse (Mac Apple Silicon uniquement : PyTorch n'est plus publié pour les
+   Mac Intel ; `./install.sh leger` pour s'en passer). `./install.sh /chemin/companyCA.crt` derrière le proxy de l'entreprise.
 2. **`./start.sh`** : le navigateur s'ouvre sur http://127.0.0.1:8110 ; Ctrl+C dans le Terminal pour arrêter.
    L'interface est refabriquée automatiquement après un `git pull`.
 
@@ -124,12 +126,13 @@ d'un pipeline local qui contient `config.yaml` et ses modèles : l'app ne télé
 ## Fabriquer l'exe
 
 ```
-build_exe.bat                  exe avec transcription faster-whisper
+build_exe.bat                  exe avec transcription et identification des intervenants (pyannote / PyTorch : très gros)
 build_exe.bat gpu              + runtimes CUDA
-build_exe.bat diarisation      + pyannote / PyTorch (exe très gros)
+build_exe.bat leger            sans l'identification des intervenants (exe beaucoup plus petit)
 ```
 
-L'exe est dans `dist\`. Sans option, la diarisation et le GPU ne sont pas inclus : l'interface le signale. Sur Mac :
+L'exe est dans `dist\`. Sans option, le GPU n'est pas inclus et l'identification des intervenants l'est (son modèle
+vient de Studio Dock) ; avec `leger`, l'interface signale qu'elle manque. Sur Mac :
 `build_exe_mac.sh` (la capture du son du PC n'existe que sous Windows).
 
 ## L'ajouter à Studio Dock

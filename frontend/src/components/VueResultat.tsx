@@ -1,5 +1,5 @@
 import React from "react";
-import { api, messageErreur } from "../api";
+import { api } from "../api";
 import type { Settings, SessionState } from "../types";
 import { DiarizationPanel } from "./DiarizationPanel";
 import { ResultatPage } from "./ResultatPage";
@@ -21,16 +21,18 @@ interface Props {
 
 /** Résultat d'une session, affiché à la fin d'une transcription comme à la réouverture depuis Mes transcriptions. */
 export const VueResultat: React.FC<Props> = ({ etat, reglages: r, regler, diarisationDispo, action, rafraichir, retour, vientDeFinir, diagnostic }) => {
-  const [erreur, setErreur] = React.useState("");
+  const [equipe, setEquipe] = React.useState(false);
+  React.useEffect(() => {
+    api<{ team_diarization: unknown }>("/api/model").then((m) => setEquipe(!!m.team_diarization)).catch(() => setEquipe(false));
+  }, []);
+  const parEquipe = equipe && !r.use_own_diarization_model;
   const fichiers = (etat.files ?? {}) as { wav?: boolean };
   const ajouterAuGlossaire = (mot: string) => {
     const mots = r.glossary.split(",").map((m) => m.trim()).filter(Boolean);
     if (!mots.some((m) => m.toLowerCase() === mot.toLowerCase())) regler("glossary", [...mots, mot].join(", "));
   };
-  const ouvrirDossier = () => api("/api/session/open-folder", { method: "POST" }).catch((e) => setErreur(messageErreur(e)));
   return (
     <div className="flex flex-col gap-5">
-      {erreur && <Alerte>{erreur}</Alerte>}
       {etat.error && <Alerte type={etat.archived ? "info" : "danger"}>{etat.error}</Alerte>}
       {vientDeFinir && etat.status !== "ERROR" && (
         <Alerte type="success">{etat.kind === "file" && etat.stopping
@@ -39,12 +41,10 @@ export const VueResultat: React.FC<Props> = ({ etat, reglages: r, regler, diaris
       )}
       <ResultatPage etat={etat} audio={!!fichiers.wav} rafraichir={() => { rafraichir().catch(() => undefined); }}
         ajouterAuGlossaire={ajouterAuGlossaire} retour={retour}
-        panneauIntervenants={<DiarizationPanel etat={etat} cheminPipeline={r.diarization_model_path} locuteurs={r.speaker_hint} disponible={diarisationDispo}
+        panneauIntervenants={<DiarizationPanel etat={etat} cheminPipeline={parEquipe ? "" : r.diarization_model_path}
+          pipelinePret={parEquipe || !!r.diarization_model_path.trim()} locuteurs={r.speaker_hint} disponible={diarisationDispo}
           relancer={async (corps) => { await action("/api/session/diarization", corps); }} />} />
-      <div className="flex flex-wrap items-center gap-3">
-        <button type="button" className="nn-btn nn-btn-secondary" onClick={ouvrirDossier}>Ouvrir le dossier</button>
-        {vientDeFinir && <span className="text-[13px] text-ink-muted">Cette session reste disponible dans <a href="#/historique" className="text-accent underline">Mes transcriptions</a>.</span>}
-      </div>
+      {vientDeFinir && <p className="m-0 text-[13px] text-ink-muted">Cette session reste disponible dans <a href="#/historique" className="text-accent underline">Mes transcriptions</a>.</p>}
       {diagnostic}
     </div>
   );

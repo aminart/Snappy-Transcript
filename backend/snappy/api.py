@@ -81,9 +81,11 @@ class CheminModele(BaseModel):
 @router.get("/model")
 def model() -> dict[str, Any]:
     """Modèle de l'équipe fourni par Studio Dock (null s'il n'y en a pas sur ce poste)."""
-    from .service import team_model
-    equipe = team_model()
-    return {"team": None if equipe is None else {"name": equipe.name, "version": equipe.version, "path": equipe.path}}
+    from .service import team_diarization_model, team_model
+    equipe, intervenants = team_model(), team_diarization_model()
+    return {"team": None if equipe is None else {"name": equipe.name, "version": equipe.version, "path": equipe.path},
+            "team_diarization": None if intervenants is None else
+            {"name": intervenants.name, "version": intervenants.version, "path": intervenants.path}}
 
 
 @router.post("/model/check")

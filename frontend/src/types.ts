@@ -26,6 +26,8 @@ export interface Settings {
   save_audio: boolean;
   diarization: boolean;
   diarization_model_path: string;
+  /** true : dossier indiqué ici plutôt que le modèle d'identification de l'équipe (Studio Dock). */
+  use_own_diarization_model: boolean;
   speaker_hint: number;
 }
 

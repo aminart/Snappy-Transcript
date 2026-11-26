@@ -74,6 +74,8 @@ interface Props {
   apercu: Apercu | null;
   actualiser: () => void;
   pipeline: Verification | null;
+  /** Modèle d'identification des intervenants fourni par l'équipe (Studio Dock), s'il y en a un. */
+  intervenantsEquipe: ModeleEquipe | null;
   modeleOk: boolean;
   blocModele: React.ReactNode;
   occupe: boolean;
@@ -81,7 +83,8 @@ interface Props {
 }
 
 /** « Prêt ? » : une ligne par sujet, modifiable sur place ; la source se vérifie avant de démarrer. */
-export const Pret: React.FC<Props> = ({ reglages: r, regler, ecoute, capacites, peripheriques, applications, apercu, actualiser, pipeline, modeleOk, blocModele, occupe, ouvrirAvances }) => {
+export const Pret: React.FC<Props> = ({ reglages: r, regler, ecoute, capacites, peripheriques, applications, apercu, actualiser, pipeline, intervenantsEquipe, modeleOk, blocModele, occupe, ouvrirAvances }) => {
+  const pipelineOk = (!!intervenantsEquipe && !r.use_own_diarization_model) || pipeline?.valid === true;
   const [ouvert, setOuvert] = React.useState<string | null>(null);
   const basculer = (id: string) => () => setOuvert((o) => (o === id ? null : id));
   const fichier = r.mode === "file";
@@ -248,7 +251,7 @@ export const Pret: React.FC<Props> = ({ reglages: r, regler, ecoute, capacites, 
       <Ligne id="intervenants" label="Intervenants" action={diarisationDispo ? "Préciser" : "Comment l'ajouter ?"} ouvert={ouvert === "intervenants"}
         basculer={!diarisationDispo || r.diarization ? basculer("intervenants") : undefined}
         bloque={occupe && diarisationDispo}
-        aide={diarisationDispo && r.diarization && pipeline?.valid !== true ? (
+        aide={diarisationDispo && r.diarization && !pipelineOk ? (
           <span className="flex flex-wrap items-center gap-x-2 gap-y-1 text-warning-text">
             Il manque le dossier du modèle d'identification des intervenants.
             <button type="button" className={lien} onClick={ouvrirAvances}>L'indiquer dans les réglages avancés</button>
@@ -260,11 +263,11 @@ export const Pret: React.FC<Props> = ({ reglages: r, regler, ecoute, capacites, 
         )}
         editeur={!diarisationDispo ? (
           <div className="flex max-w-[560px] flex-col gap-2 rounded-md border border-line bg-surface-2 px-4 py-3 text-[13px] leading-snug text-ink-body">
-            <span>L'identification des intervenants (« qui a dit quoi ») est un module optionnel, un peu lourd (plus de 1 Go) :</span>
+            <span>L'identification des intervenants (« qui a dit quoi ») n'a pas été installée sur ce poste (installation « leger », ou échec du téléchargement) :</span>
             <ol className="m-0 flex flex-col gap-1 pl-5">
               <li>fermez Snappy Transcript ;</li>
-              <li>dans le dossier du projet, lancez <code className="rounded bg-surface-3 px-1">install.bat intervenants</code> (sur Mac : <code className="rounded bg-surface-3 px-1">./install.sh intervenants</code>, Mac Apple Silicon seulement) ;</li>
-              <li>relancez l'app, puis indiquez dans « Réglages avancés » le dossier du modèle pyannote fourni par votre équipe.</li>
+              <li>dans le dossier du projet, relancez <code className="rounded bg-surface-3 px-1">install.bat</code>, sans l'option « leger » (sur Mac : <code className="rounded bg-surface-3 px-1">./install.sh</code>, Mac Apple Silicon seulement) ;</li>
+              <li>relancez l'app : le modèle fourni par votre équipe dans Studio Dock est utilisé tout seul (sinon, indiquez son dossier dans « Réglages avancés »).</li>
             </ol>
           </div>
         ) : (
@@ -298,13 +301,14 @@ interface PropsAvances {
   modeleOk: boolean;
   blocModele: React.ReactNode;
   pipeline: Verification | null;
+  intervenantsEquipe: ModeleEquipe | null;
   occupe: boolean;
   ouvert: boolean;
   basculer: () => void;
 }
 
 /** Réglages techniques, repliés : moteur, modèle, calcul, blocs, silences, audio gardé, modèle d'identification. */
-export const ReglagesAvances: React.FC<PropsAvances> = ({ reglages: r, regler, capacites, cuda, modeleOk, blocModele, pipeline, occupe, ouvert, basculer }) => {
+export const ReglagesAvances: React.FC<PropsAvances> = ({ reglages: r, regler, capacites, cuda, modeleOk, blocModele, pipeline, intervenantsEquipe, occupe, ouvert, basculer }) => {
   const local = r.engine === "local";
   const diarisationDispo = capacites?.diarization !== false;
   return (
@@ -359,12 +363,24 @@ export const ReglagesAvances: React.FC<PropsAvances> = ({ reglages: r, regler, c
         )}
         <label className="nn-check"><input type="checkbox" checked={r.save_audio} disabled={occupe}
           onChange={(e) => regler("save_audio", e.target.checked)} /> <span>Garder l'enregistrement audio (pour réécouter et identifier les intervenants plus tard)</span></label>
-        {diarisationDispo && (
+        {diarisationDispo && intervenantsEquipe && !r.use_own_diarization_model && (
+          <div className="flex flex-col gap-1.5">
+            <span className="text-sm font-medium text-ink">Modèle d'identification des intervenants</span>
+            <span className="nn-chip nn-chip-success self-start">✓ {intervenantsEquipe.name}{intervenantsEquipe.version ? ` ${intervenantsEquipe.version}` : ""} · fourni par votre équipe</span>
+            <button type="button" className={lien} disabled={occupe} onClick={() => regler("use_own_diarization_model", true)}>Utiliser un autre dossier sur ce poste</button>
+          </div>
+        )}
+        {diarisationDispo && !(intervenantsEquipe && !r.use_own_diarization_model) && (
           <Champ id="pipeline" label="Dossier du modèle d'identification des intervenants"
             aide={<Verifie resultat={r.diarization_model_path.trim() ? pipeline : null} vide="Dossier pyannote déjà présent sur le disque (avec config.yaml)." />}>
             <input id="pipeline" className="nn-input" value={r.diarization_model_path} disabled={occupe} spellCheck={false}
               placeholder=".\models\pyannote-speaker-diarization-community-1" onChange={(e) => regler("diarization_model_path", e.target.value)} />
           </Champ>
+        )}
+        {diarisationDispo && intervenantsEquipe && r.use_own_diarization_model && (
+          <button type="button" className={lien} disabled={occupe} onClick={() => regler("use_own_diarization_model", false)}>
+            Revenir au modèle de l'équipe ({intervenantsEquipe.name})
+          </button>
         )}
       </div>}
     </div>

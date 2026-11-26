@@ -95,7 +95,7 @@ def test_erreurs_lisibles(client):
 
 def test_diarisation_non_lancee_si_pipeline_invalide(client):
     etat = client.post("/api/session/start", json={**DEMARRAGE, "diarization": True, "diarization_model_path": "/absent"}).json()
-    assert etat["diarization"]["note"].startswith("Diarisation non lancée") and not etat["diarization"]["wanted"]
+    assert etat["diarization"]["note"].startswith("Intervenants non identifiés") and not etat["diarization"]["wanted"]
     terminer(client)
 
 
@@ -143,7 +143,7 @@ def test_capacites_et_peripheriques(client):
 
 def test_modele_de_l_equipe_fourni_par_studio_dock(client, tmp_path, monkeypatch):
     monkeypatch.setenv("STUDIODOCK_IA", str(tmp_path / "ia"))
-    assert client.get("/api/model").json() == {"team": None}
+    assert client.get("/api/model").json() == {"team": None, "team_diarization": None}
     # sans modèle de l'équipe ni dossier : message qui explique où le régler
     r = client.post("/api/session/start", json={**DEMARRAGE, "engine": "local", "model_path": ""})
     assert r.status_code == 422 and "Studio Dock" in r.json()["detail"]

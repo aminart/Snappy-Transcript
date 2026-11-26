@@ -2,6 +2,10 @@
 
 ## [Non publié]
 
+- Identification des intervenants intégrée : installée d'office par install.bat / install.sh et incluse dans l'exe
+  (`leger` pour s'en passer ; un échec n'empêche pas de transcrire). Son modèle pyannote est fourni par l'équipe via
+  Studio Dock (studiodock_ia.intervenants()) et utilisé sans rien régler ; un dossier choisi sur le poste reste possible.
+- « Ouvrir le dossier » retiré de la vue d'une transcription.
 - Retours d'utilisation : l'app s'ouvre toujours sur « En direct » ; « On écoute » tient sur une ligne, avec
   « Ma voix + une application » en premier et choisi par défaut (l'application de la visio en cours est prise
   d'office) ; précisions et cases rangées dans leur ligne ; liste des micros dédoublonnée (une ligne par appareil,
