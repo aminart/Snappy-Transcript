@@ -35,6 +35,10 @@ export interface Capabilities {
   platform: string;
   stt: boolean;
   diarization: boolean;
+  /** pyannote / PyTorch présents mais qui ne se chargent pas : la cause. */
+  diarization_error?: string | null;
+  /** Fin du chargement en arrière-plan de pyannote / PyTorch (au démarrage). */
+  diarization_ready?: boolean;
   system_audio: boolean;
   /** Le son d'une seule application peut être capté (Windows 10 2004 ou plus récent). */
   app_audio: boolean;

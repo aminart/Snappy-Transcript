@@ -300,15 +300,25 @@ export const Pret: React.FC<Props> = ({ reglages: r, regler, ecoute, capacites, 
         ouvert={diarisationDispo ? r.diarization : ouvert === "intervenants"}
         basculer={diarisationDispo ? undefined : basculer("intervenants")}
         bloque={occupe && diarisationDispo}
-        aide={diarisationDispo && r.diarization && !pipelineOk ? (
+        aide={diarisationDispo && r.diarization && capacites?.diarization_error ? (
+          <span className="text-warning-text">{capacites.diarization_error}</span>
+        ) : diarisationDispo && r.diarization && !pipelineOk ? (
           <span className="flex flex-wrap items-center gap-x-2 gap-y-1 text-warning-text">
             Il manque le dossier du modèle d'identification des intervenants.
             <button type="button" className={lien} onClick={ouvrirAvances}>L'indiquer dans les réglages avancés</button>
           </span>
         ) : undefined}
         fin={diarisationDispo && (
+          <>
+          {r.diarization && capacites?.diarization_ready === false && (
+            <span role="status" className="flex items-center gap-1.5 text-[12px] text-ink-subtle">
+              <span className="h-3 w-3 animate-spin rounded-full border-2 border-line-strong border-t-primary motion-reduce:animate-none" aria-hidden="true" />
+              Préparation…
+            </span>
+          )}
           <Interrupteur actif={r.diarization} changer={(v) => regler("diarization", v)} desactive={occupe}
             nom="Identifier qui parle" />
+          </>
         )}
         editeur={!diarisationDispo ? (
           <div className="flex max-w-[560px] flex-col gap-2 rounded-md border border-line bg-surface-2 px-4 py-3 text-[13px] leading-snug text-ink-body">

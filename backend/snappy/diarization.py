@@ -3,6 +3,10 @@ from dataclasses import replace
 from pathlib import Path
 import wave, numpy as np, time
 from .models import TranscriptSegment, TranscriptWord
+import warnings
+# pyannote prévient que torchcodec (décodage de fichiers audio) manque : Snappy lui donne l'audio déjà en mémoire
+# ({'waveform', 'sample_rate'}), torchcodec ne sert donc jamais. On n'affiche pas cet avertissement trompeur.
+warnings.filterwarnings('ignore', message=r'.*torchcodec is not installed correctly.*')
 
 def validate_diarization_model(path):
     p=Path((path or '').strip().strip('"')).expanduser()
@@ -12,6 +16,43 @@ def validate_diarization_model(path):
     req=(p/'embedding'/'pytorch_model.bin',p/'segmentation'/'pytorch_model.bin',p/'plda'/'plda.npz',p/'plda'/'xvec_transform.npz')
     missing=[str(x.relative_to(p)) for x in req if not x.is_file()]
     return (False,'Pipeline incomplet : '+', '.join(missing)) if missing else (True,str(p))
+def _absente(exc):
+    """Message quand pyannote ou PyTorch ne se charge pas : on donne la vraie cause (module manquant, DLL bloquée…)."""
+    import sys
+    cause=f'{type(exc).__name__} : {exc}'
+    if getattr(sys,'frozen',False):
+        return ("L'identification des intervenants ne se charge pas sur ce poste (" + cause + "). "
+                "Lancez « SnappyTranscript.exe --check » dans un terminal pour le détail ; si un antivirus bloque une DLL, "
+                "il faut l'autoriser pour Snappy Transcript.")
+    return ("L'identification des intervenants ne se charge pas (" + cause + "). "
+            "Relancez install.bat (sans « leger ») ou « pip install -r backend/requirements-diarization.txt ».")
+_CHARGEMENT={'fini':False,'erreur':None}
+def prechauffer():
+    """Charge pyannote et PyTorch en arrière-plan au démarrage : la première identification est plus rapide, et
+    l'interface sait tout de suite si ces briques ne se chargent pas sur ce poste (DLL bloquée, installation partielle)."""
+    import importlib.util, threading
+    if _CHARGEMENT.get('lance'):return
+    _CHARGEMENT['lance']=True
+    try:present=importlib.util.find_spec('pyannote.audio') is not None and importlib.util.find_spec('torch') is not None
+    except (ImportError,ValueError):present=False
+    if not present:_CHARGEMENT['fini']=True;return
+    def charger():
+        try:
+            import torch  # noqa: F401
+            from pyannote.audio import Pipeline  # noqa: F401
+        except Exception as exc:  # noqa: BLE001 — ImportError, OSError (DLL)…
+            _CHARGEMENT['erreur']=_absente(exc)
+        finally:_CHARGEMENT['fini']=True
+    threading.Thread(target=charger,name='prechauffage-intervenants',daemon=True).start()
+def erreur_chargement():
+    return _CHARGEMENT['erreur']
+def chargement_fini():
+    return bool(_CHARGEMENT['fini'])
+# Étapes de pyannote (noms techniques anglais) traduites pour la barre de progression
+ETAPES={'segmentation':'Repérage des passages de parole','speaker_counting':'Comptage des voix',
+        'embeddings':'Comparaison des voix','discrete_diarization':'Regroupement par personne'}
+def etape(nom):
+    return ETAPES.get(str(nom),str(nom).replace('_',' '))
 def _turns(a):return [(float(t.start),float(t.end),str(l)) for t,_,l in a.itertracks(yield_label=True)]
 def _best(turns,start,end):
     label=None; best=0.
@@ -39,11 +80,11 @@ def _pipeline(model_path):
     if not ok:raise ValueError(detail)
     try:
         from pyannote.audio import Pipeline
-    except ImportError as exc:raise RuntimeError('Diarisation non installée. Installe requirements-diarization.txt') from exc
+    except ImportError as exc:raise RuntimeError(_absente(exc)) from exc
     return Pipeline.from_pretrained(detail)
 def diarize_waveform(waveform,sample_rate,segments,model_path,min_speakers=None,max_speakers=None,progress_callback=None):
     try:import torch
-    except ImportError as exc:raise RuntimeError('Diarisation non installée : torch et pyannote.audio sont absents de cette version.') from exc
+    except ImportError as exc:raise RuntimeError(_absente(exc)) from exc
     p=_pipeline(model_path); tensor=torch.from_numpy(waveform.astype(np.float32,copy=False)).unsqueeze(0)
     kw={}
     if min_speakers:kw['min_speakers']=int(min_speakers)
@@ -59,12 +100,12 @@ def diarize_waveform(waveform,sample_rate,segments,model_path,min_speakers=None,
                 eta=(elapsed/frac-elapsed) if frac and frac>0 else None
                 # Throttle UI callbacks slightly; always pass phase changes/final-ish updates.
                 if now-self.last>.20 or (frac is not None and frac>=.999):
-                    self.last=now; progress_callback(str(step_name),frac,elapsed,eta)
+                    self.last=now; progress_callback(etape(step_name),frac,elapsed,eta)
             except Exception: pass
     hook=Hook() if progress_callback else None
-    if progress_callback:progress_callback('chargement / préparation',0.0,0.0,None)
+    if progress_callback:progress_callback('Préparation',0.0,0.0,None)
     output=p({'waveform':tensor,'sample_rate':int(sample_rate)},hook=hook,**kw) if hook else p({'waveform':tensor,'sample_rate':int(sample_rate)},**kw)
-    if progress_callback:progress_callback('fusion transcription / locuteurs',1.0,time.monotonic()-hook.started,0.0)
+    if progress_callback:progress_callback('Attribution des phrases',1.0,time.monotonic()-hook.started,0.0)
     ann=getattr(output,'exclusive_speaker_diarization',None) or getattr(output,'speaker_diarization',output)
     return _merge(segments,_turns(ann))
 def diarize_wav_file(wav_path,segments,model_path,min_speakers=None,max_speakers=None,progress_callback=None):

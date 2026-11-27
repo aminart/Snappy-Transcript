@@ -136,7 +136,8 @@ def test_verification_des_dossiers_de_modele(client, tmp_path):
 
 
 def test_capacites_et_peripheriques(client):
-    assert set(client.get("/api/capabilities").json()) == {"platform", "stt", "diarization", "system_audio", "app_audio", "files", "file_extensions"}
+    assert set(client.get("/api/capabilities").json()) == {"platform", "stt", "diarization", "system_audio", "app_audio", "files", "file_extensions",
+                                                                 "diarization_error", "diarization_ready"}
     d = client.get("/api/devices").json()
     assert isinstance(d["inputs"], list) and isinstance(d["outputs"], list)
 

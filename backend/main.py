@@ -15,6 +15,8 @@ from snappy.service import ServiceError, manager
 
 @asynccontextmanager
 async def cycle_de_vie(_: FastAPI):
+    from snappy.diarization import prechauffer
+    prechauffer()  # pyannote / PyTorch chargés en arrière-plan dès le démarrage
     yield
     manager.shutdown()  # referme proprement le WAV d'une session encore en cours
 

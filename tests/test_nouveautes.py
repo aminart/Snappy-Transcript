@@ -384,3 +384,35 @@ def test_envoyer_a_docanalyser(client, monkeypatch):
 
 def test_langue_par_defaut_detection_automatique(client):
     assert client.get("/api/settings").json()["language"] == "auto"
+
+
+def test_intervenants_qui_ne_se_chargent_pas_donnent_la_vraie_cause(client, monkeypatch):
+    """pyannote présent mais qui ne se charge pas (DLL bloquée…) : la cause est remontée, pas « installe … »."""
+    import builtins
+    import importlib.util
+
+    from snappy import diarization as d
+
+    monkeypatch.setattr(d, "_CHARGEMENT", {"fini": False, "erreur": None})
+    monkeypatch.setattr(importlib.util, "find_spec", lambda nom, *a: object())
+    vrai = builtins.__import__
+
+    def faux(nom, *a, **k):
+        if nom.startswith("torch") or nom.startswith("pyannote"):
+            raise ImportError("DLL load failed while importing _C")
+        return vrai(nom, *a, **k)
+
+    monkeypatch.setattr(builtins, "__import__", faux)
+    d.prechauffer()
+    attendre(client, lambda _e: d.chargement_fini())
+    erreur = d.erreur_chargement()
+    assert "DLL load failed" in erreur and "requirements-diarization.txt" in erreur
+    monkeypatch.setattr(builtins, "__import__", vrai)
+    c = client.get("/api/capabilities").json()
+    assert c["diarization_error"] == erreur and c["diarization_ready"] is True
+
+
+def test_etapes_d_identification_en_francais():
+    from snappy.diarization import etape
+    assert etape("embeddings") == "Comparaison des voix" and etape("segmentation") == "Repérage des passages de parole"
+    assert etape("nouvelle_etape") == "nouvelle etape"

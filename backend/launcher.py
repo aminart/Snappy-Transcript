@@ -64,6 +64,11 @@ def lire_options(argv: list[str] | None) -> argparse.Namespace:
 def verifier() -> int:
     """Charge réellement chaque brique (un import qui réussit hors exe peut échouer une fois empaqueté)."""
     import importlib
+    import warnings
+
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8")  # « ÉCHEC » lisible tel quel par la vérification de la fabrication
+    warnings.filterwarnings("ignore", message=r".*torchcodec is not installed correctly.*")  # inutile ici, voir diarization.py
 
     briques = [("Transcription", "faster_whisper"), ("Moteur", "ctranslate2"), ("Fichiers audio et vidéo", "av"),
                ("Micro", "sounddevice"), ("Interface web", "main")]
@@ -75,7 +80,9 @@ def verifier() -> int:
         try:
             importlib.import_module(module)
             if module == "pyannote.audio":
-                from pyannote.audio import Pipeline  # noqa: F401 — ce que l'identification utilise vraiment
+                # ce que l'identification charge vraiment, y compris le pipeline (importé à la demande)
+                from pyannote.audio import Pipeline  # noqa: F401
+                importlib.import_module("pyannote.audio.pipelines.speaker_diarization")
             print(f"OK      {nom}")
         except Exception as e:  # noqa: BLE001 — on veut le message, quel qu'il soit
             echecs += requis

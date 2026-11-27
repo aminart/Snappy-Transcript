@@ -55,7 +55,8 @@ a = Analysis(
     datas=datas,
     binaries=binaries,
     hiddenimports=hiddenimports,
-    excludes=["tkinter", "matplotlib", "IPython", "pandas", "pytest", "_pytest", "pkg_resources"],
+    # pandas : requis par pyannote (pyannote.database) ; ne pas l'exclure, sinon « Intervenants » échoue.
+    excludes=["tkinter", "matplotlib", "IPython", "pytest", "_pytest", "pkg_resources"],
 )
 pyz = PYZ(a.pure)
 exe = EXE(
