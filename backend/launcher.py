@@ -64,6 +64,9 @@ def lire_options(argv: list[str] | None) -> argparse.Namespace:
 def verifier() -> int:
     """Charge réellement chaque brique (un import qui réussit hors exe peut échouer une fois empaqueté)."""
     import importlib
+    import warnings
+
+    warnings.filterwarnings("ignore", message=r".*torchcodec is not installed correctly.*")  # inutile ici, voir diarization.py
 
     briques = [("Transcription", "faster_whisper"), ("Moteur", "ctranslate2"), ("Fichiers audio et vidéo", "av"),
                ("Micro", "sounddevice"), ("Interface web", "main")]

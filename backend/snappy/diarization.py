@@ -3,6 +3,10 @@ from dataclasses import replace
 from pathlib import Path
 import wave, numpy as np, time
 from .models import TranscriptSegment, TranscriptWord
+import warnings
+# pyannote prévient que torchcodec (décodage de fichiers audio) manque : Snappy lui donne l'audio déjà en mémoire
+# ({'waveform', 'sample_rate'}), torchcodec ne sert donc jamais. On n'affiche pas cet avertissement trompeur.
+warnings.filterwarnings('ignore', message=r'.*torchcodec is not installed correctly.*')
 
 def validate_diarization_model(path):
     p=Path((path or '').strip().strip('"')).expanduser()
