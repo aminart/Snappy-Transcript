@@ -254,11 +254,18 @@ export const Transcription: React.FC = () => {
 
   const actualiser = React.useCallback(() => { api<Devices>("/api/devices").then(setPeripheriques).catch(() => undefined); }, []);
   React.useEffect(() => {
-    api<Capabilities>("/api/capabilities").then(setCapacites).catch(() => undefined);
+    // Rechargé tant que pyannote / PyTorch finissent de se charger en arrière-plan, pour connaître une éventuelle erreur
+    let minuterie = 0;
+    const capacitesDe = () => api<Capabilities>("/api/capabilities").then((c) => {
+      setCapacites(c);
+      if (c.diarization && c.diarization_ready === false) minuterie = window.setTimeout(capacitesDe, 3000);
+    }).catch(() => undefined);
+    capacitesDe();
     api<Cuda>("/api/cuda").then(setCuda).catch(() => undefined);
     api<{ team: ModeleEquipe | null; team_diarization: ModeleEquipe | null }>("/api/model")
       .then((m) => { setEquipe(m.team); setEquipeIntervenants(m.team_diarization); }).catch(() => setEquipe(null));
     actualiser();
+    return () => window.clearTimeout(minuterie);
   }, [actualiser]);
 
   const modele = useVerification("/api/model/check", reglages?.model_path ?? "");

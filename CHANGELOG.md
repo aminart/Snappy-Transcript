@@ -2,6 +2,11 @@
 
 ## [Non publié]
 
+- Intervenants : quand pyannote / PyTorch sont présents mais ne se chargent pas (DLL bloquée par un antivirus,
+  installation partielle), l'interface le dit dès l'accueil avec la vraie cause, au lieu de « Installe
+  requirements-diarization.txt » à la fin de l'enregistrement. Ils sont chargés en arrière-plan au démarrage,
+  ce qui accélère aussi la première identification.
+
 ## [0.3.0] — 2026-11-26
 
 - Langue : « Détection automatique » par défaut (et en tête de la liste). Un poste qui a déjà enregistré ses réglages

@@ -300,7 +300,9 @@ export const Pret: React.FC<Props> = ({ reglages: r, regler, ecoute, capacites, 
         ouvert={diarisationDispo ? r.diarization : ouvert === "intervenants"}
         basculer={diarisationDispo ? undefined : basculer("intervenants")}
         bloque={occupe && diarisationDispo}
-        aide={diarisationDispo && r.diarization && !pipelineOk ? (
+        aide={diarisationDispo && r.diarization && capacites?.diarization_error ? (
+          <span className="text-warning-text">{capacites.diarization_error}</span>
+        ) : diarisationDispo && r.diarization && !pipelineOk ? (
           <span className="flex flex-wrap items-center gap-x-2 gap-y-1 text-warning-text">
             Il manque le dossier du modèle d'identification des intervenants.
             <button type="button" className={lien} onClick={ouvrirAvances}>L'indiquer dans les réglages avancés</button>

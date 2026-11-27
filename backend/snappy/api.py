@@ -33,9 +33,14 @@ def _present(module: str) -> bool:
 @router.get("/capabilities")
 def capabilities() -> dict[str, Any]:
     """Ce que cette installation sait faire : permet à l'interface d'expliquer ce qui manque plutôt que d'échouer."""
+    from .diarization import chargement_fini, erreur_chargement, prechauffer
+    prechauffer()
     return {
         "platform": sys.platform,
         "stt": _present("faster_whisper"),
+        # Présentes mais qui ne se chargent pas (DLL bloquée, installation partielle) : la cause, pour l'expliquer
+        "diarization_error": erreur_chargement(),
+        "diarization_ready": chargement_fini(),
         "diarization": _present("pyannote.audio") and _present("torch"),
         "system_audio": sys.platform == "win32" and _present("soundcard"),
         "app_audio": app_capture_status()[0],
