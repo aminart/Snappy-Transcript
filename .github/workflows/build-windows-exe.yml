@@ -86,9 +86,9 @@ jobs:
           exe=./dist/SnappyTranscript.exe
           ls -l "$exe"
           "$exe" --version
-          "$exe" --check | tee check.txt || true
+          "$exe" --check | tr -d '\r' | tee check.txt || true
           if grep -q "ÉCHEC" check.txt; then echo "::error::Une brique ne se charge pas dans l'exe"; exit 1; fi
-          if ! grep -q "OK      Intervenants" check.txt; then echo "::error::L'identification des intervenants manque dans l'exe"; exit 1; fi
+          if ! grep -qx "OK      Intervenants" check.txt || ! grep -qx "OK      Intervenants (PyTorch)" check.txt; then echo "::error::L'identification des intervenants manque dans l'exe"; exit 1; fi
           "$exe" --no-browser --port 8599 &
           for i in $(seq 120); do curl -sf http://127.0.0.1:8599/health && exit 0; sleep 1; done
           echo "::error::L'exe ne répond pas sur /health"

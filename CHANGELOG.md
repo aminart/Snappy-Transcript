@@ -2,6 +2,13 @@
 
 ## [Non publié]
 
+## [0.3.1] — 2026-11-27
+
+- **Correctif** : l'identification des intervenants échouait dans l'exe (`No module named 'pandas'`) : pandas, requis
+  par pyannote, était exclu de la fabrication. La vérification de la fabrication contrôle désormais vraiment que
+  les intervenants se chargent (elle acceptait à tort la seule ligne « Intervenants (PyTorch) »).
+- Avertissement « torchcodec is not installed correctly » masqué : sans effet, l'audio est passé en mémoire.
+
 - Intervenants : quand pyannote / PyTorch sont présents mais ne se chargent pas (DLL bloquée par un antivirus,
   installation partielle), l'interface le dit dès l'accueil avec la vraie cause, au lieu de « Installe
   requirements-diarization.txt » à la fin de l'enregistrement. Ils sont chargés en arrière-plan au démarrage,
