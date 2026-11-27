@@ -48,6 +48,11 @@ def erreur_chargement():
     return _CHARGEMENT['erreur']
 def chargement_fini():
     return bool(_CHARGEMENT['fini'])
+# Étapes de pyannote (noms techniques anglais) traduites pour la barre de progression
+ETAPES={'segmentation':'Repérage des passages de parole','speaker_counting':'Comptage des voix',
+        'embeddings':'Comparaison des voix','discrete_diarization':'Regroupement par personne'}
+def etape(nom):
+    return ETAPES.get(str(nom),str(nom).replace('_',' '))
 def _turns(a):return [(float(t.start),float(t.end),str(l)) for t,_,l in a.itertracks(yield_label=True)]
 def _best(turns,start,end):
     label=None; best=0.
@@ -95,12 +100,12 @@ def diarize_waveform(waveform,sample_rate,segments,model_path,min_speakers=None,
                 eta=(elapsed/frac-elapsed) if frac and frac>0 else None
                 # Throttle UI callbacks slightly; always pass phase changes/final-ish updates.
                 if now-self.last>.20 or (frac is not None and frac>=.999):
-                    self.last=now; progress_callback(str(step_name),frac,elapsed,eta)
+                    self.last=now; progress_callback(etape(step_name),frac,elapsed,eta)
             except Exception: pass
     hook=Hook() if progress_callback else None
-    if progress_callback:progress_callback('chargement / préparation',0.0,0.0,None)
+    if progress_callback:progress_callback('Préparation',0.0,0.0,None)
     output=p({'waveform':tensor,'sample_rate':int(sample_rate)},hook=hook,**kw) if hook else p({'waveform':tensor,'sample_rate':int(sample_rate)},**kw)
-    if progress_callback:progress_callback('fusion transcription / locuteurs',1.0,time.monotonic()-hook.started,0.0)
+    if progress_callback:progress_callback('Attribution des phrases',1.0,time.monotonic()-hook.started,0.0)
     ann=getattr(output,'exclusive_speaker_diarization',None) or getattr(output,'speaker_diarization',output)
     return _merge(segments,_turns(ann))
 def diarize_wav_file(wav_path,segments,model_path,min_speakers=None,max_speakers=None,progress_callback=None):

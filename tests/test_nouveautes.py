@@ -410,3 +410,9 @@ def test_intervenants_qui_ne_se_chargent_pas_donnent_la_vraie_cause(client, monk
     monkeypatch.setattr(builtins, "__import__", vrai)
     c = client.get("/api/capabilities").json()
     assert c["diarization_error"] == erreur and c["diarization_ready"] is True
+
+
+def test_etapes_d_identification_en_francais():
+    from snappy.diarization import etape
+    assert etape("embeddings") == "Comparaison des voix" and etape("segmentation") == "Repérage des passages de parole"
+    assert etape("nouvelle_etape") == "nouvelle etape"
