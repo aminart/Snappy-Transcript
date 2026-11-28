@@ -465,3 +465,19 @@ def test_identification_non_bloquante_et_arretable(client, monkeypatch):
     assert client.post("/api/session/diarization/stop").status_code == 409
     assert not {s["id"]: s for s in client.get("/api/history").json()["sessions"]}[premiere]["identifying"]
     liberer.set()
+
+
+def test_audio_non_garde_supprime_meme_si_l_identification_est_arretee(client, monkeypatch):
+    from snappy.diarization import Interrompue
+
+    def arretee(wav, segs, m, n, job):
+        raise Interrompue("arrêtée")
+
+    monkeypatch.setattr("snappy.service._diarize", arretee)
+    monkeypatch.setattr("snappy.service._validate_pipeline", lambda path: "ok")
+    monkeypatch.setattr("snappy.diarization.validate_diarization_model", lambda path: (True, "ok"))
+    client.post("/api/session/start", json={**DEMARRAGE, "diarization": True, "diarization_model_path": "x", "save_audio": False})
+    attendre(client, lambda e: e["duration"] >= 7)
+    client.post("/api/session/stop")
+    fin = attendre(client, lambda e: e["finalized"] and e["diarization"]["status"] == "CANCELLED")
+    assert fin["files"]["wav"] is False and fin["total"] > 0

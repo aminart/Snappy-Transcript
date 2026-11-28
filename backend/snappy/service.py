@@ -475,9 +475,11 @@ class ActiveSession:
             self._discard_wav_if_unwanted()
         except Interrompue:
             job.status, job.phase, job.fraction, job.eta = "CANCELLED", "", None, None
+            self._discard_wav_if_unwanted()  # « Garder l'enregistrement » décoché : l'audio ne reste pas
         except Exception as exc:
             log.exception("Diarisation")
             job.status, job.error = "ERROR", f"{type(exc).__name__}: {exc}"
+            self._discard_wav_if_unwanted()
 
     def stop_diarization(self) -> None:
         """« Arrêter » : l'identification s'interrompt à la prochaine étape ; le texte reste tel quel."""
