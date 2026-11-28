@@ -15,7 +15,24 @@ def validate_diarization_model(path):
     if not (p/'config.yaml').is_file():return False,'config.yaml absent : sélectionne le dossier racine du pipeline pyannote local.'
     req=(p/'embedding'/'pytorch_model.bin',p/'segmentation'/'pytorch_model.bin',p/'plda'/'plda.npz',p/'plda'/'xvec_transform.npz')
     missing=[str(x.relative_to(p)) for x in req if not x.is_file()]
-    return (False,'Pipeline incomplet : '+', '.join(missing)) if missing else (True,str(p))
+    if missing:return False,'Pipeline incomplet : '+', '.join(missing)
+    classe=_classe_du_pipeline(p/'config.yaml')
+    if not classe.startswith('pyannote.audio.pipelines.'):
+        # config.yaml désigne la classe que pyannote instancie : un dossier piégé pourrait y mettre n'importe quel code
+        return False,f"config.yaml refusé : la classe « {classe or '?'} » n'est pas un pipeline pyannote."
+    return True,str(p)
+def _classe_du_pipeline(config):
+    """Valeur de pipeline › name dans config.yaml (lecture sûre, sans rien exécuter)."""
+    try:
+        import yaml
+        d=yaml.safe_load(config.read_text(encoding='utf-8')) or {}
+        return str(((d.get('pipeline') or {}).get('name')) or '').strip()
+    except ImportError:
+        import re
+        m=re.search(r'^pipeline:\s*\n(?:[ \t]+.*\n)*?[ \t]+name:\s*["\']?([\w.]+)',config.read_text(encoding='utf-8'),re.M)
+        return m.group(1) if m else ''
+    except Exception:
+        return ''
 def _absente(exc):
     """Message quand pyannote ou PyTorch ne se charge pas : on donne la vraie cause (module manquant, DLL bloquée…)."""
     import sys
@@ -82,10 +99,17 @@ def _pipeline(model_path):
         from pyannote.audio import Pipeline
     except ImportError as exc:raise RuntimeError(_absente(exc)) from exc
     return Pipeline.from_pretrained(detail)
-def diarize_waveform(waveform,sample_rate,segments,model_path,min_speakers=None,max_speakers=None,progress_callback=None):
+class Interrompue(Exception):
+    """Identification arrêtée à la demande (bouton « Arrêter ») : le texte sans intervenants reste intact."""
+def diarize_waveform(waveform,sample_rate,segments,model_path,min_speakers=None,max_speakers=None,progress_callback=None,should_stop=None):
+    """segments : liste, ou fonction qui la renvoie (lue à la fin, pour tenir compte des corrections faites entre-temps).
+    should_stop : fonction ; si elle renvoie vrai, l'identification s'arrête à la prochaine étape (Interrompue)."""
+    def verifier():
+        if should_stop and should_stop():raise Interrompue('Identification arrêtée.')
     try:import torch
     except ImportError as exc:raise RuntimeError(_absente(exc)) from exc
-    p=_pipeline(model_path); tensor=torch.from_numpy(waveform.astype(np.float32,copy=False)).unsqueeze(0)
+    verifier()
+    p=_pipeline(model_path); verifier(); tensor=torch.from_numpy(waveform.astype(np.float32,copy=False)).unsqueeze(0)
     kw={}
     if min_speakers:kw['min_speakers']=int(min_speakers)
     if max_speakers:kw['max_speakers']=int(max_speakers)
@@ -93,6 +117,7 @@ def diarize_waveform(waveform,sample_rate,segments,model_path,min_speakers=None,
         def __init__(self): self.started=time.monotonic(); self.last=0.0
         def __call__(self, step_name, step_artifact=None, file=None, total=None, completed=None, **kwargs):
             # pyannote passes completed/total for iterable pipeline stages.
+            verifier()  # hors du try : l'arrêt doit remonter
             if not progress_callback:return
             try:
                 c=float(completed or 0); t=float(total or 0); frac=(c/t) if t>0 else None
@@ -102,16 +127,17 @@ def diarize_waveform(waveform,sample_rate,segments,model_path,min_speakers=None,
                 if now-self.last>.20 or (frac is not None and frac>=.999):
                     self.last=now; progress_callback(etape(step_name),frac,elapsed,eta)
             except Exception: pass
-    hook=Hook() if progress_callback else None
+    hook=Hook() if progress_callback or should_stop else None
     if progress_callback:progress_callback('Préparation',0.0,0.0,None)
     output=p({'waveform':tensor,'sample_rate':int(sample_rate)},hook=hook,**kw) if hook else p({'waveform':tensor,'sample_rate':int(sample_rate)},**kw)
+    verifier()
     if progress_callback:progress_callback('Attribution des phrases',1.0,time.monotonic()-hook.started,0.0)
     ann=getattr(output,'exclusive_speaker_diarization',None) or getattr(output,'speaker_diarization',output)
-    return _merge(segments,_turns(ann))
-def diarize_wav_file(wav_path,segments,model_path,min_speakers=None,max_speakers=None,progress_callback=None):
+    return _merge(segments() if callable(segments) else segments,_turns(ann))
+def diarize_wav_file(wav_path,segments,model_path,min_speakers=None,max_speakers=None,progress_callback=None,should_stop=None):
     """Offline/post-hoc diarization from a PCM16 mono WAV. No browser/base64 and no FFmpeg."""
     with wave.open(str(wav_path),'rb') as f:
         sr=f.getframerate(); ch=f.getnchannels(); sw=f.getsampwidth(); pcm=f.readframes(f.getnframes())
     if ch!=1 or sw!=2:raise ValueError(f'WAV attendu : mono PCM16. Reçu : {ch} canal(aux), {sw*8} bits.')
     audio=np.frombuffer(pcm,dtype=np.int16).astype(np.float32)/32768.0
-    return diarize_waveform(audio,sr,segments,model_path,min_speakers,max_speakers,progress_callback)
+    return diarize_waveform(audio,sr,segments,model_path,min_speakers,max_speakers,progress_callback,should_stop)

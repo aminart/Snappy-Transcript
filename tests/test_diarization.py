@@ -28,3 +28,15 @@ def test_validation_du_pipeline(tmp_path):
     assert "introuvable" in validate_diarization_model(str(tmp_path / "absent"))[1]
     ok, detail = validate_diarization_model(str(tmp_path))
     assert not ok and "config.yaml" in detail
+
+
+def test_config_yaml_piege_refuse(tmp_path):
+    """config.yaml désigne la classe que pyannote instancie : seule une classe pyannote est acceptée."""
+    for f in ("embedding/pytorch_model.bin", "segmentation/pytorch_model.bin", "plda/plda.npz", "plda/xvec_transform.npz"):
+        (tmp_path / f).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / f).write_text("x")
+    (tmp_path / "config.yaml").write_text("pipeline:\n  name: subprocess.Popen\n  params:\n    args: calc.exe\n")
+    ok, detail = validate_diarization_model(str(tmp_path))
+    assert not ok and "subprocess.Popen" in detail
+    (tmp_path / "config.yaml").write_text("version: 3.1.0\npipeline:\n  name: pyannote.audio.pipelines.SpeakerDiarization\n  params:\n    clustering: VBxClustering\n")
+    assert validate_diarization_model(str(tmp_path))[0] is True

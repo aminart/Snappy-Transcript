@@ -4,3 +4,29 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* Éléments désactivés : un aspect grisé en plus du curseur (le design system ne grise que le bouton principal). */
+.nn-btn-secondary:disabled,
+.nn-btn-soft:disabled,
+.nn-btn[aria-disabled="true"]:not(.nn-btn-primary) {
+  background: var(--nn-surface-2);
+  color: var(--nn-ink-subtle);
+  border-color: var(--nn-line);
+  cursor: not-allowed;
+}
+.nn-btn-primary[aria-disabled="true"] {
+  background: var(--nn-primary-disabled);
+  color: var(--nn-on-primary-disabled);
+  cursor: not-allowed;
+}
+.nn-btn-secondary:disabled svg,
+.nn-btn-soft:disabled svg { opacity: 0.6; }
+.nn-icon-btn:disabled { color: var(--nn-ink-subtle); background: transparent; opacity: 0.5; cursor: not-allowed; }
+.nn-input:disabled,
+select.nn-input:disabled,
+textarea.nn-input:disabled {
+  background: var(--nn-surface-2);
+  color: var(--nn-ink-subtle);
+  border-color: var(--nn-line);
+  cursor: not-allowed;
+}

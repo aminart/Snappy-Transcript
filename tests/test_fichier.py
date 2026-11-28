@@ -15,7 +15,7 @@ OPTIONS = {"engine": "mock", "diarization": False}
 
 @pytest.fixture
 def client():
-    with TestClient(app) as c:
+    with TestClient(app, base_url="http://127.0.0.1") as c:
         yield c
 
 
@@ -105,7 +105,7 @@ def test_pause_puis_arret_garde_le_texte_deja_transcrit(client, tmp_path, monkey
 
 def test_diarisation_apres_un_fichier(client, tmp_path, monkeypatch):
     monkeypatch.setattr("snappy.service._diarize", lambda wav, segs, m, n, job: [
-        TranscriptSegment(s.start, s.end, s.text, "SPEAKER_00") for s in segs])
+        TranscriptSegment(s.start, s.end, s.text, "SPEAKER_00") for s in segs()])
     monkeypatch.setattr("snappy.service._validate_pipeline", lambda path: "ok")
     monkeypatch.setattr("snappy.diarization.validate_diarization_model", lambda path: (True, "ok"))
     audio = ecrire(tmp_path / "a.mp3", "libmp3lame", secondes=6)

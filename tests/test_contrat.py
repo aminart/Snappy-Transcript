@@ -15,7 +15,7 @@ sys.path.insert(0, str(RACINE / "backend"))
 from app_info import APP_ID, VERSION  # noqa: E402
 from main import app  # noqa: E402
 
-client = TestClient(app)
+client = TestClient(app, base_url="http://127.0.0.1")
 
 
 def _port_libre() -> int:

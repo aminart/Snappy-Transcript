@@ -13,7 +13,7 @@ from snappy.service import manager
 @pytest.fixture
 def client(monkeypatch):
     monkeypatch.setattr(manager, "_source", lambda p: SourceContinue())
-    with TestClient(app) as c:
+    with TestClient(app, base_url="http://127.0.0.1") as c:
         yield c
 
 
@@ -103,7 +103,7 @@ def test_diarisation_en_arriere_plan(client, monkeypatch):
     def faux(wav, segments, model, speakers, job):
         job.progress("segmentation", 0.5, 1.0, 1.0)
         return [TranscriptSegment(s.start, s.end, s.text, "SPEAKER_00" if i % 2 == 0 else "SPEAKER_01",
-                                  (TranscriptWord(s.start, s.end, s.text),)) for i, s in enumerate(segments)]
+                                  (TranscriptWord(s.start, s.end, s.text),)) for i, s in enumerate(segments())]
     monkeypatch.setattr("snappy.service._diarize", faux)
     monkeypatch.setattr("snappy.service._validate_pipeline", lambda path: "pipeline-ok")
     monkeypatch.setattr("snappy.diarization.validate_diarization_model", lambda path: (True, "pipeline-ok"))
