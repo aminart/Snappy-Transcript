@@ -293,6 +293,7 @@ def _pipeline(dossier):
     for f in ("config.yaml", "embedding/pytorch_model.bin", "segmentation/pytorch_model.bin", "plda/plda.npz", "plda/xvec_transform.npz"):
         (dossier / f).parent.mkdir(parents=True, exist_ok=True)
         (dossier / f).write_text("x")
+    (dossier / "config.yaml").write_text("pipeline:\n  name: pyannote.audio.pipelines.SpeakerDiarization\n  params: {}\n")
     return dossier
 
 
@@ -416,3 +417,67 @@ def test_etapes_d_identification_en_francais():
     from snappy.diarization import etape
     assert etape("embeddings") == "Comparaison des voix" and etape("segmentation") == "Repérage des passages de parole"
     assert etape("nouvelle_etape") == "nouvelle etape"
+
+
+def test_identification_non_bloquante_et_arretable(client, monkeypatch):
+    """L'identification ne bloque plus : on quitte, on enregistre autre chose, on la retrouve en rouvrant la session,
+    et « Arrêter » l'interrompt en gardant le texte."""
+    import threading
+
+    from snappy.diarization import Interrompue
+    from snappy.models import TranscriptSegment
+
+    lancee, liberer = threading.Event(), threading.Event()
+
+    def lente(wav, segs, m, n, job):
+        lancee.set()
+        while not liberer.is_set():
+            if job.arret.is_set():
+                raise Interrompue("arrêtée")
+            time.sleep(0.02)
+        return [TranscriptSegment(s.start, s.end, s.text, "SPEAKER_00") for s in segs()]
+
+    monkeypatch.setattr("snappy.service._diarize", lente)
+    monkeypatch.setattr("snappy.service._validate_pipeline", lambda path: "ok")
+    monkeypatch.setattr("snappy.diarization.validate_diarization_model", lambda path: (True, "ok"))
+    client.post("/api/session/start", json={**DEMARRAGE, "diarization": True, "diarization_model_path": "x"})
+    attendre(client, lambda e: e["duration"] >= 7)
+    client.post("/api/session/stop")
+    premiere = attendre(client, lambda e: e["finalized"] and e["diarization"]["status"] == "RUNNING")["id"]
+    assert lancee.wait(5)
+
+    # pendant l'identification : corriger, tout remplacer, annuler restent possibles
+    assert client.post("/api/session/replace", json={"find": "a", "replace": "a"}).status_code in (200, 422)
+    # on quitte (Mes transcriptions / Nouvelle transcription) : plus de refus
+    assert client.delete("/api/session").status_code in (200, 204)
+    liste = {s["id"]: s for s in client.get("/api/history").json()["sessions"]}
+    assert liste[premiere]["identifying"] is True
+    assert client.delete(f"/api/history/{premiere}/audio").status_code == 409  # protégée tant qu'elle tourne
+    # une nouvelle session démarre pendant ce temps
+    assert client.post("/api/session/start", json={**DEMARRAGE, "diarization": False}).status_code == 200
+    client.post("/api/session/stop")
+    attendre(client, lambda e: e["finalized"])
+    # rouvrir la première retrouve l'identification en cours, puis l'arrêter
+    assert client.post(f"/api/history/{premiere}/open").json()["diarization"]["status"] == "RUNNING"
+    assert client.post("/api/session/diarization/stop").status_code == 200
+    fin = attendre(client, lambda e: e["diarization"]["status"] == "CANCELLED")
+    assert fin["total"] > 0 and not fin["files"]["diarized_txt"]
+    assert client.post("/api/session/diarization/stop").status_code == 409
+    assert not {s["id"]: s for s in client.get("/api/history").json()["sessions"]}[premiere]["identifying"]
+    liberer.set()
+
+
+def test_audio_non_garde_supprime_meme_si_l_identification_est_arretee(client, monkeypatch):
+    from snappy.diarization import Interrompue
+
+    def arretee(wav, segs, m, n, job):
+        raise Interrompue("arrêtée")
+
+    monkeypatch.setattr("snappy.service._diarize", arretee)
+    monkeypatch.setattr("snappy.service._validate_pipeline", lambda path: "ok")
+    monkeypatch.setattr("snappy.diarization.validate_diarization_model", lambda path: (True, "ok"))
+    client.post("/api/session/start", json={**DEMARRAGE, "diarization": True, "diarization_model_path": "x", "save_audio": False})
+    attendre(client, lambda e: e["duration"] >= 7)
+    client.post("/api/session/stop")
+    fin = attendre(client, lambda e: e["finalized"] and e["diarization"]["status"] == "CANCELLED")
+    assert fin["files"]["wav"] is False and fin["total"] > 0

@@ -70,7 +70,9 @@ export interface Segment {
 }
 
 export interface Diarisation {
-  status: "IDLE" | "RUNNING" | "DONE" | "ERROR";
+  status: "IDLE" | "RUNNING" | "DONE" | "ERROR" | "CANCELLED";
+  /** « Arrêter » demandé : l'identification s'interrompt à la prochaine étape. */
+  stopping?: boolean;
   phase: string;
   fraction: number | null;
   elapsed: number;
@@ -154,6 +156,8 @@ export interface SessionPassee {
   audio: boolean;
   error?: string;
   current: boolean;
+  /** Identification des intervenants en cours (éventuellement en arrière-plan). */
+  identifying?: boolean;
   title: string;
   recoverable?: boolean;
   excerpt: Extrait | null;

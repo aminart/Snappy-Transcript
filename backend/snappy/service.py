@@ -84,7 +84,7 @@ class DiarizationJob:
     """Suivi d'une diarisation (de la session courante ou d'une reprise après coup)."""
 
     def __init__(self) -> None:
-        self.status = "IDLE"          # IDLE | RUNNING | DONE | ERROR
+        self.status = "IDLE"          # IDLE | RUNNING | DONE | ERROR | CANCELLED (arrêtée à la demande)
         self.phase = ""
         self.fraction: float | None = None
         self.elapsed = 0.0
@@ -92,6 +92,7 @@ class DiarizationJob:
         self.error = ""
         self.note = ""
         self.thread: threading.Thread | None = None
+        self.arret = threading.Event()  # « Arrêter » : vérifié à chaque étape de pyannote
 
     @property
     def running(self) -> bool:
@@ -101,17 +102,23 @@ class DiarizationJob:
         self.phase, self.fraction, self.elapsed, self.eta = phase, fraction, elapsed, eta
 
     def as_dict(self) -> dict[str, Any]:
-        return {"status": self.status, "phase": self.phase, "fraction": self.fraction, "elapsed": round(self.elapsed, 1),
+        return {"status": self.status, "stopping": self.running and self.arret.is_set(), "phase": self.phase, "fraction": self.fraction, "elapsed": round(self.elapsed, 1),
                 "eta": None if self.eta is None else round(self.eta, 1), "error": self.error, "note": self.note}
 
 
-def _diarize(wav: Path, segments: list[TranscriptSegment], model_path: str, speakers: int, job: DiarizationJob) -> list[TranscriptSegment]:
-    from .diarization import diarize_wav_file
+def _diarize(wav: Path, segments: Any, model_path: str, speakers: int, job: DiarizationJob) -> list[TranscriptSegment]:
+    """segments : fonction qui renvoie le texte à la fin (les corrections faites pendant l'identification sont gardées)."""
+    from .diarization import Interrompue, diarize_wav_file
 
     kwargs = {"min_speakers": speakers, "max_speakers": speakers} if speakers else {}
-    job.progress("en attente d'une autre diarisation", None, 0.0, None)
-    with _DIARIZATION_LOCK:
-        return diarize_wav_file(wav, segments, model_path, progress_callback=job.progress, **kwargs)
+    job.progress("En attente d'une autre identification", None, 0.0, None)
+    while not _DIARIZATION_LOCK.acquire(timeout=0.2):  # une à la fois (mémoire), mais l'attente s'arrête aussi
+        if job.arret.is_set():
+            raise Interrompue("Identification arrêtée.")
+    try:
+        return diarize_wav_file(wav, segments, model_path, progress_callback=job.progress, should_stop=job.arret.is_set, **kwargs)
+    finally:
+        _DIARIZATION_LOCK.release()
 
 
 def _chemin_pipeline(path: str) -> str:
@@ -242,8 +249,6 @@ class ActiveSession:
         with self._lock:
             if not self._annulables:
                 raise ServiceError("Rien à annuler.", 409)
-            if self.diar.running:
-                raise ServiceError("Attendez la fin de l'identification des intervenants.", 409)
             quoi, self.raw_segments, self.diarized_segments = self._annulables.pop()
             self.save()
             return quoi
@@ -352,8 +357,6 @@ class ActiveSession:
             raise ServiceError("Indiquez le texte à rechercher.", 422)
         with self._lock:
             self._editable("raw")
-            if self.diar.running:
-                raise ServiceError("Attendez la fin de l'identification des intervenants.", 409)
             m = motif(find, case, whole_word)
             avant = (list(self.raw_segments or []), list(self.diarized_segments) if self.diarized_segments is not None else None)
             total = 0
@@ -453,23 +456,36 @@ class ActiveSession:
                 raise ServiceError("L'enregistrement WAV de cette session n'existe plus : diarisation impossible.", 409)
             model = _validate_pipeline(model_path)
             job = self.diar
-            job.status, job.error, job.fraction, job.phase = "RUNNING", "", None, "préparation"
+            job.arret.clear()
+            job.status, job.error, job.fraction, job.phase = "RUNNING", "", None, "Préparation"
             job.thread = threading.Thread(target=self._diarize_worker, args=(model, speakers), name="diarization", daemon=True)
             job.thread.start()
 
     def _diarize_worker(self, model: str, speakers: int) -> None:
+        from .diarization import Interrompue
+
         job = self.diar
         try:
-            labelled = _diarize(self.live.wav_path, list(self.raw_segments or self.live.segments()), model, speakers, job)
+            labelled = _diarize(self.live.wav_path, lambda: list(self.raw_segments or self.live.segments()), model, speakers, job)
             with self._lock:
                 self.diarized_segments = list(labelled)
                 self.speaker_names = {}  # nouvelle identification : les étiquettes peuvent avoir changé
                 self.save()
             job.status = "DONE"
             self._discard_wav_if_unwanted()
+        except Interrompue:
+            job.status, job.phase, job.fraction, job.eta = "CANCELLED", "", None, None
+            self._discard_wav_if_unwanted()  # « Garder l'enregistrement » décoché : l'audio ne reste pas
         except Exception as exc:
             log.exception("Diarisation")
             job.status, job.error = "ERROR", f"{type(exc).__name__}: {exc}"
+            self._discard_wav_if_unwanted()
+
+    def stop_diarization(self) -> None:
+        """« Arrêter » : l'identification s'interrompt à la prochaine étape ; le texte reste tel quel."""
+        if not self.diar.running:
+            raise ServiceError("Aucune identification des intervenants en cours.", 409)
+        self.diar.arret.set()
 
     # -- état renvoyé à l'interface ------------------------------------------------------------------------------
 
@@ -700,7 +716,26 @@ class Manager:
         self.preview = Apercu()
         self.modele = ModeleCharge()
         self._index: dict[str, tuple] = {}   # « Mes transcriptions » : fiche et texte de chaque session, par empreinte
+        # Sessions quittées pendant l'identification des intervenants : elle continue en arrière-plan, et rouvrir la
+        # session retrouve son avancement (et le bouton « Arrêter »).
+        self.arriere_plan: dict[str, ActiveSession] = {}
         self._lock = threading.RLock()
+
+    def _quitter(self, nouvelle: ActiveSession | None) -> None:
+        """Remplace la session affichée ; si l'ancienne identifie encore ses intervenants, elle continue à côté."""
+        ancienne = self.current
+        if ancienne is not None and ancienne is not nouvelle and ancienne.diar.running:
+            self.arriere_plan[ancienne.stamp] = ancienne
+        self.current = nouvelle
+        self._ranger()
+
+    def _ranger(self) -> None:
+        for stamp in [k for k, s in self.arriere_plan.items() if not s.diar.running]:
+            del self.arriere_plan[stamp]
+
+    def identification_en_cours(self, session_id: str) -> bool:
+        self._ranger()
+        return session_id in self.arriere_plan or bool(self.current and self.current.stamp == session_id and self.current.diar.running)
 
     # -- sessions ------------------------------------------------------------------------------------------------
 
@@ -794,8 +829,6 @@ class Manager:
     def _check_free(self) -> None:
         if self.current and not self.current.finished:
             raise ServiceError("Une session est déjà en cours.", 409)
-        if self.current and self.current.diar.running:
-            raise ServiceError("Attendez la fin de la diarisation avant de commencer une nouvelle session.", 409)
 
     @staticmethod
     def _diarization_choice(p: StartParams) -> tuple[bool, str, str]:
@@ -818,7 +851,7 @@ class Manager:
         except OSError as exc:
             raise ServiceError(f"Impossible d'ouvrir la source audio : {exc}", 422) from exc
         active.watch()
-        self.current = active
+        self._quitter(active)
         return active.state()
 
     def start(self, p: StartParams) -> dict[str, Any]:
@@ -892,9 +925,7 @@ class Manager:
                 return
             if not s.finished:
                 raise ServiceError("La session n'est pas terminée.", 409)
-            if s.diar.running:
-                raise ServiceError("Attendez la fin de la diarisation avant de commencer une nouvelle session.", 409)
-            self.current = None
+            self._quitter(None)  # une identification en cours continue en arrière-plan
 
     # -- historique ------------------------------------------------------------------------------------------------
 
@@ -978,14 +1009,17 @@ class Manager:
             n = compter(texte, q) + compter(base["title"], q)
             if q and not n:
                 continue
-            sorties.append({**base, "current": d.name == courant, "excerpt": ex or extrait(texte), "matches": n})
+            sorties.append({**base, "current": d.name == courant, "excerpt": ex or extrait(texte), "matches": n,
+                            "identifying": self.identification_en_cours(d.name)})
         return sorties
 
     def delete_audio(self, session_id: str) -> int:
         """Supprime l'enregistrement audio d'une session et garde son texte ; renvoie la place libérée (octets)."""
         with self._lock:
-            if self.current and self.current.stamp == session_id and (not self.current.finished or self.current.diar.running):
+            if self.current and self.current.stamp == session_id and not self.current.finished:
                 raise ServiceError("Cette session est en cours.", 409)
+            if self.identification_en_cours(session_id):
+                raise ServiceError("L'identification des intervenants de cette session est en cours : arrêtez-la d'abord.", 409)
             d = self._session_dir(session_id)
             if not (d / SESSION_FILE).is_file():
                 raise ServiceError("Récupérez d'abord le texte de cette session : son audio est sa seule sauvegarde.", 409)
@@ -1004,7 +1038,7 @@ class Manager:
         limite = datetime.now().timestamp() - days * 86400
         liberes, nombre = 0, 0
         for s in self.history():
-            if s["interrupted"] or not s["audio"] or s["current"]:
+            if s["interrupted"] or not s["audio"] or s["current"] or s.get("identifying"):
                 continue
             try:
                 debut = datetime.strptime(s["id"][:19], "%Y-%m-%d_%H-%M-%S").timestamp()
@@ -1076,6 +1110,10 @@ class Manager:
             if self.current and self.current.stamp == session_id:
                 return self.current.state()
             self._check_free()
+            self._ranger()
+            if session_id in self.arriere_plan:  # identification encore en cours : on retrouve la session vivante
+                self._quitter(self.arriere_plan.pop(session_id))
+                return self.current.state()
             d = self._session_dir(session_id)
             try:
                 fiche = json.loads((d / SESSION_FILE).read_text(encoding="utf-8"))
@@ -1101,13 +1139,15 @@ class Manager:
                 chemin = d / f"transcript_{session_id}_{nom}"
                 setattr(active, attribut, chemin if chemin.is_file() else None)
             active._exports_done.set()
-            self.current = active
+            self._quitter(active)
             return active.state()
 
     def delete_session(self, session_id: str) -> None:
         with self._lock:
+            if self.identification_en_cours(session_id):
+                raise ServiceError("L'identification des intervenants de cette session est en cours : arrêtez-la d'abord.", 409)
             if self.current and self.current.stamp == session_id:
-                if not self.current.finished or self.current.diar.running:
+                if not self.current.finished:
                     raise ServiceError("Cette session est en cours.", 409)
                 self.current = None
             d = self._session_dir(session_id)

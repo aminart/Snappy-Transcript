@@ -81,7 +81,7 @@ def test_hors_windows_la_fonction_est_annoncee_indisponible():
         pytest.skip("vérifié sur un poste non Windows")
     ok, raison = app_audio.app_capture_status()
     assert not ok and "Windows" in raison
-    with TestClient(app) as c:
+    with TestClient(app, base_url="http://127.0.0.1") as c:
         r = c.get("/api/audio-apps").json()
         assert r == {"supported": False, "reason": raison, "apps": [], "recommended": ""}
         assert c.get("/api/capabilities").json()["app_audio"] is False
@@ -169,7 +169,7 @@ def test_demarrage_avec_l_application_choisie(monkeypatch, faux_wasapi):
     monkeypatch.setattr(app_audio, "list_audio_apps", lambda: [AppAudio("ms-teams.exe", "Microsoft Teams", 100, True, 0.3, True)])
     src = manager._source(StartParams(source="system", app="ms-teams.exe"))
     assert isinstance(src, ProcessLoopbackSource) and src.pid == 100 and src.name == "Microsoft Teams"
-    with TestClient(app) as c:
+    with TestClient(app, base_url="http://127.0.0.1") as c:
         demarrage = {"engine": "mock", "source": "system", "app": "ms-teams.exe", "chunk_seconds": 3, "diarization": False}
         etat = c.post("/api/session/start", json=demarrage).json()
         assert etat["active"]

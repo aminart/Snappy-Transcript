@@ -20,5 +20,5 @@ def test_l_api_renvoie_un_message_lisible(monkeypatch):
     def panne():
         raise AttributeError("'NoneType' object has no attribute 'x'")
     monkeypatch.setattr(cuda_runtime, "prepare_cuda_runtime", panne)
-    r = TestClient(app).get("/api/cuda").json()
+    r = TestClient(app, base_url="http://127.0.0.1").get("/api/cuda").json()
     assert r["ready"] is False and "processeur" in r["message"] and "NoneType" not in r["message"]

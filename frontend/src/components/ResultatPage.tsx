@@ -107,13 +107,15 @@ interface Props {
   panneauIntervenants: React.ReactNode;
   /** Bouton du haut : « Nouvelle transcription », ou retour à la liste depuis Mes transcriptions. */
   retour: { label: string; faire: () => void };
+  /** Bouton « ← Mes transcriptions » à côté de « Nouvelle transcription » (Transcrire). */
+  aussi?: { label: string; faire: () => void };
 }
 
 /**
  * Résultat d'une session : titre, texte à corriger sur place, intervenants à nommer d'un clic, lecteur avec forme
  * d'onde par intervenant, moments marqués, rechercher / remplacer, copier et exporter (dont Word).
  */
-export const ResultatPage: React.FC<Props> = ({ etat, audio, rafraichir, ajouterAuGlossaire, panneauIntervenants, retour }) => {
+export const ResultatPage: React.FC<Props> = ({ etat, audio, rafraichir, ajouterAuGlossaire, panneauIntervenants, retour, aussi }) => {
   const avecIntervenants = etat.diarization.status === "DONE";
   // Une seule version affichée : avec intervenants dès qu'ils sont identifiés (les corrections sont reportées dans
   // le texte seul par le serveur, qui reste téléchargeable dans « Exporter »).
@@ -340,14 +342,20 @@ export const ResultatPage: React.FC<Props> = ({ etat, audio, rafraichir, ajouter
 
   return (
     <div className="flex flex-col gap-5">
-      <button type="button" className="nn-btn nn-btn-secondary self-start gap-2" onClick={retour.faire}
-        disabled={etat.diarization.status === "RUNNING" && retour.label === "Nouvelle transcription"}
-        title={etat.diarization.status === "RUNNING" ? "Attendez la fin de l'identification des intervenants" : undefined}>
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-          {retour.label === "Nouvelle transcription" ? <path d="M12 5v14M5 12h14" /> : <path d="M15 18l-6-6 6-6" />}
-        </svg>
-        {retour.label}
-      </button>
+      <div className="flex flex-wrap items-center gap-2">
+        {aussi && (
+          <button type="button" className="nn-btn nn-btn-secondary gap-2" onClick={aussi.faire}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6" /></svg>
+            {aussi.label}
+          </button>
+        )}
+        <button type="button" className="nn-btn nn-btn-secondary gap-2" onClick={retour.faire}>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            {retour.label === "Nouvelle transcription" ? <path d="M12 5v14M5 12h14" /> : <path d="M15 18l-6-6 6-6" />}
+          </svg>
+          {retour.label}
+        </button>
+      </div>
 
       <div className="flex flex-wrap items-end gap-4">
         <div className="min-w-0 flex-[1_1_360px]">

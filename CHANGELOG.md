@@ -2,6 +2,17 @@
 
 ## [Non publié]
 
+- **Identification des intervenants non bloquante** : le texte est utilisable dès l'arrêt (copier, exporter,
+  corriger, tout remplacer, annuler) ; on peut quitter la transcription, en commencer une autre ou parcourir Mes
+  transcriptions pendant qu'elle tourne. La session affiche « Identification des intervenants… » dans la liste et
+  la rouvrir retrouve l'avancement. Bouton **Arrêter** (le texte reste intact, « Relancer l'identification »
+  ensuite). Les corrections faites pendant l'identification sont conservées.
+- Résultat (Transcrire) : bouton **« ‹ Mes transcriptions »** à côté de « Nouvelle transcription ».
+- Boutons et champs désactivés : aspect grisé (fond, texte, bordure), en plus du curseur.
+- **Sécurité** (voir SECURITY.md) : l'API locale refuse les requêtes d'autres sites (CSRF) et les noms d'hôte
+  autres que 127.0.0.1 / localhost (DNS rebinding) ; en-têtes anti-intégration ; `config.yaml` d'un modèle
+  d'intervenants limité aux classes pyannote.
+
 ## [0.3.1] — 2026-11-27
 
 - **Correctif** : l'identification des intervenants échouait dans l'exe (`No module named 'pandas'`) : pandas, requis

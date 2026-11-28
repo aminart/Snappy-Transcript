@@ -1,5 +1,5 @@
 import React from "react";
-import { messageErreur } from "../api";
+import { api, messageErreur } from "../api";
 import { duree } from "../format";
 import { Alerte, Progression } from "./ui";
 import type { SessionState } from "../types";
@@ -13,9 +13,11 @@ interface Props {
   locuteurs: number;
   disponible: boolean;
   relancer: (corps: { model_path: string; speakers: number }) => Promise<void>;
+  /** Recharger l'état de la session (après « Arrêter »). */
+  rafraichir?: () => void;
 }
 
-export const DiarizationPanel: React.FC<Props> = ({ etat, cheminPipeline, pipelinePret, locuteurs, disponible, relancer }) => {
+export const DiarizationPanel: React.FC<Props> = ({ etat, cheminPipeline, pipelinePret, locuteurs, disponible, relancer, rafraichir }) => {
   const d = etat.diarization;
   const [erreur, setErreur] = React.useState("");
   const [occupe, setOccupe] = React.useState(false);
@@ -25,6 +27,10 @@ export const DiarizationPanel: React.FC<Props> = ({ etat, cheminPipeline, pipeli
     setOccupe(true);
     setErreur("");
     try { await relancer({ model_path: cheminPipeline, speakers: locuteurs }); } catch (e) { setErreur(messageErreur(e)); } finally { setOccupe(false); }
+  };
+  const arreter = async () => {
+    setErreur("");
+    try { await api("/api/session/diarization/stop", { method: "POST" }); rafraichir?.(); } catch (e) { setErreur(messageErreur(e)); }
   };
   const bouton = (libelle: string) => (
     <button type="button" className="nn-btn nn-btn-secondary self-start" onClick={lancer} disabled={occupe || !disponible || !wav || !pipelinePret}>
@@ -38,8 +44,17 @@ export const DiarizationPanel: React.FC<Props> = ({ etat, cheminPipeline, pipeli
   return (
     <div className="flex flex-col gap-3" aria-live="polite">
       {d.status === "RUNNING" && (
-        <Progression fraction={d.fraction}
-          libelle={`Identification des intervenants · ${d.phase}${d.fraction !== null ? ` · ${Math.round(d.fraction * 100)} %` : ""} · ${duree(d.elapsed)} écoulées${d.eta !== null ? ` · reste environ ${duree(d.eta)}` : ""}`} />
+        <>
+          <Progression fraction={d.stopping ? null : d.fraction}
+            libelle={d.stopping ? "Arrêt de l'identification…"
+              : `${d.phase}${d.fraction !== null ? ` · ${Math.round(d.fraction * 100)} %` : ""}${d.eta !== null ? ` · reste environ ${duree(d.eta)}` : ` · ${duree(d.elapsed)} écoulées`}`} />
+          <div className="flex items-center gap-3">
+            <p className="m-0 min-w-0 flex-1 text-[13px] text-ink-muted">Le texte est déjà utilisable. Vous pouvez quitter cette page : l'identification continue.</p>
+            <button type="button" className="nn-btn nn-btn-secondary shrink-0" onClick={arreter} disabled={d.stopping}>
+              {d.stopping ? "Arrêt…" : "Arrêter"}
+            </button>
+          </div>
+        </>
       )}
       {d.status === "IDLE" && d.wanted && <Alerte type="info">Les intervenants seront identifiés juste après la transcription.</Alerte>}
       {d.status === "IDLE" && !d.wanted && (
@@ -54,6 +69,12 @@ export const DiarizationPanel: React.FC<Props> = ({ etat, cheminPipeline, pipeli
             ✓ Identification terminée.
           </p>
           {!impossible && bouton("Recommencer l'identification")}
+        </>
+      )}
+      {d.status === "CANCELLED" && (
+        <>
+          <p className="m-0 text-sm text-ink-body">Identification arrêtée. Le texte reste intact.</p>
+          {impossible ? <p className="m-0 text-[13px] text-ink-muted">{impossible}</p> : bouton("Relancer l'identification")}
         </>
       )}
       {d.status === "ERROR" && (

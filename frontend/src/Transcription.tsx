@@ -63,6 +63,8 @@ function useAnnonce(state: SessionState | null): string {
         setAnnonce(state.status === "ERROR" ? "La transcription s'est arrêtée sur une erreur." : "Transcription terminée : le texte est prêt.");
       } else if (p.diar === "RUNNING" && state.diarization.status === "DONE") {
         setAnnonce("Intervenants identifiés.");
+      } else if (p.diar === "RUNNING" && state.diarization.status === "CANCELLED") {
+        setAnnonce("Identification des intervenants arrêtée ; le texte reste intact.");
       } else if (p.diar === "RUNNING" && state.diarization.status === "ERROR") {
         setAnnonce("L'identification des intervenants a échoué ; le texte reste intact.");
       }
@@ -320,14 +322,13 @@ export const Transcription: React.FC = () => {
   const { modeleOk, bloc: blocModele } = useBlocModele(r ?? ({} as Settings), regler, capacites, equipe, modele, occupe || demarrage);
   if (!r) return <p className="m-0 text-sm text-ink-muted">Chargement…</p>;
 
-  const diarisationEnCours = state?.diarization.status === "RUNNING";
   const diarisationDispo = capacites?.diarization ?? false;
   const modeFichier = r.mode === "file";
   const modeleEquipe = !!equipe && !r.use_own_model;
   const intervenantsEquipe = !!equipeIntervenants && !r.use_own_diarization_model;
   const moteurPret = r.engine === "mock" || (modeleOk && capacites?.stt !== false);
   const pret = modeFichier ? !!choix && (capacites?.files ?? false) : sourcePrete;
-  const peutDemarrer = !occupe && !demarrage && !diarisationEnCours && pret && moteurPret;
+  const peutDemarrer = !occupe && !demarrage && pret && moteurPret; // une identification en cours continue à côté
 
   const options = () => ({
     engine: r.engine, model_path: modeleEquipe ? "" : r.model_path, acceleration: r.acceleration, language: r.language, glossary: r.glossary,
@@ -395,8 +396,7 @@ export const Transcription: React.FC = () => {
   } as const)[ecoute];
 
   const pourquoiPas = !peutDemarrer && !occupe && !demarrage
-    ? (diarisationEnCours ? "Attendez la fin de l'identification des intervenants."
-      : r.engine === "local" && !moteurPret ? "Aucun modèle de transcription : voir « Modèle de transcription » ci-contre."
+    ? (r.engine === "local" && !moteurPret ? "Aucun modèle de transcription : voir « Modèle de transcription » ci-contre."
       : modeFichier ? (capacites?.files === false ? "La lecture des fichiers n'est pas disponible ici." : "Choisissez d'abord un fichier.")
       : avecMicro && !micChoisi ? "Aucun microphone disponible."
       : avecSysteme && !capacites?.system_audio ? "Le son du PC n'est pas disponible ici."
@@ -450,7 +450,11 @@ export const Transcription: React.FC = () => {
         <p className="sr-only" aria-live="polite">{annonce}</p>
         {erreur && <Alerte>{erreur}</Alerte>}
         <VueResultat etat={state} reglages={r} regler={regler} diarisationDispo={diarisationDispo} action={action} rafraichir={rafraichir}
-          retour={{ label: "Nouvelle transcription", faire: nouvelle }} vientDeFinir diagnostic={<Diagnostic etat={state} />} />
+          retour={{ label: "Nouvelle transcription", faire: nouvelle }} vientDeFinir
+          aussi={{ label: "Mes transcriptions", faire: async () => {
+            setErreur("");
+            try { await oublier(); window.location.hash = "#/historique"; } catch (e) { setErreur(messageErreur(e)); }
+          } }} diagnostic={<Diagnostic etat={state} />} />
       </>
     );
   }

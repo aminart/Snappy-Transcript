@@ -116,6 +116,13 @@ const Liste: React.FC = () => {
     const t = setTimeout(() => charger(q), q ? 250 : 0);
     return () => clearTimeout(t);
   }, [q, charger]);
+  // Une identification tourne en arrière-plan : la liste se met à jour quand elle finit
+  const identification = (sessions ?? []).some((s) => s.identifying);
+  React.useEffect(() => {
+    if (!identification) return;
+    const t = setInterval(() => charger(q), 3000);
+    return () => clearInterval(t);
+  }, [identification, q, charger]);
   React.useEffect(() => {
     if (!menu) return;
     document.querySelector<HTMLElement>("[data-menu-session] [role=menuitem]")?.focus();
@@ -262,6 +269,12 @@ const Liste: React.FC = () => {
                       </>
                     )}
                     {s.interrupted && <span className="nn-chip nn-chip-warning">Interrompue</span>}
+                    {s.identifying && (
+                      <span className="nn-chip inline-flex items-center gap-1.5">
+                        <span className="h-2.5 w-2.5 animate-spin rounded-full border-2 border-line-strong border-t-primary motion-reduce:animate-none" aria-hidden="true" />
+                        Identification des intervenants…
+                      </span>
+                    )}
                   </div>
                   {s.interrupted ? (
                     <span className="text-[13px] text-ink-muted">L'application s'est fermée pendant l'enregistrement. {conserve(s)}</span>
@@ -295,7 +308,7 @@ const Liste: React.FC = () => {
                   <div className="flex gap-2">
                     {!s.interrupted ? <button type="button" className="nn-btn nn-btn-primary" onClick={() => ouvrir(s.id)}>Ouvrir</button>
                       : s.recoverable ? <button type="button" className="nn-btn nn-btn-primary" onClick={() => ouvrir(s.id, true)}>Récupérer le texte</button> : null}
-                    {((!s.interrupted && s.audio) || !s.current) && <div className="relative" data-menu-session>
+                    {!s.identifying && ((!s.interrupted && s.audio) || !s.current) && <div className="relative" data-menu-session>
                       <button type="button" className="nn-btn nn-btn-secondary w-10 px-0" aria-label={`Plus d'actions pour « ${titre} »`} aria-haspopup="menu"
                         aria-expanded={menu === s.id} onClick={() => setMenu(menu === s.id ? null : s.id)}>
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="2" /><circle cx="12" cy="12" r="2" /><circle cx="19" cy="12" r="2" /></svg>

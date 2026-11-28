@@ -441,6 +441,14 @@ class DemandeDiarisation(BaseModel):
     speakers: int = Field(0, ge=0, le=20)
 
 
+@router.post("/session/diarization/stop")
+def stop_diarization() -> dict[str, Any]:
+    """« Arrêter » l'identification des intervenants : le texte reste tel quel, on pourra la relancer."""
+    s = _session()
+    s.stop_diarization()
+    return s.state()
+
+
 @router.post("/session/diarization")
 def rerun_diarization(body: DemandeDiarisation) -> dict[str, Any]:
     s = manager.current

@@ -25,6 +25,51 @@ app = FastAPI(title=APP_NAME, version=VERSION, lifespan=cycle_de_vie)
 app.include_router(router)
 
 
+# --- Protection de l'API locale -----------------------------------------------------------------------------
+# Le serveur n'écoute que sur 127.0.0.1, mais n'importe quelle page web ouverte dans le navigateur peut lui envoyer
+# des requêtes. Trois garde-fous :
+# 1. Host : seulement 127.0.0.1 / localhost (une page piégée qui fait pointer son propre domaine vers 127.0.0.1,
+#    le « DNS rebinding », lirait sinon toutes les transcriptions) ;
+# 2. requêtes qui modifient (POST, PUT, DELETE…) : seulement depuis l'interface de Snappy elle-même (en-tête Origin),
+#    sinon un site pourrait lancer un enregistrement, effacer l'audio ou charger un faux modèle ;
+# 3. en-têtes : pas d'affichage de Snappy dans une page tierce (clic piégé), pas de lecture de ses fichiers ailleurs.
+HOTES_LOCAUX = {"127.0.0.1", "localhost", "::1"}
+SURES = {"GET", "HEAD", "OPTIONS"}
+ENTETES = {
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+    "Content-Security-Policy": "frame-ancestors 'none'",
+    "Cross-Origin-Resource-Policy": "same-origin",
+    "Referrer-Policy": "no-referrer",
+}
+
+
+def _nom_d_hote(valeur: str) -> str:
+    from urllib.parse import urlsplit
+    try:
+        return (urlsplit(valeur if "://" in valeur else f"http://{valeur}").hostname or "").lower()
+    except ValueError:
+        return ""
+
+
+@app.middleware("http")
+async def garde_locale(request: Request, call_next):
+    hote = request.headers.get("host", "")
+    if _nom_d_hote(hote) not in HOTES_LOCAUX:
+        return JSONResponse({"detail": "Adresse refusée : Snappy Transcript ne répond qu'à 127.0.0.1."}, status_code=403)
+    if request.method not in SURES:
+        origine = request.headers.get("origin")
+        site = request.headers.get("sec-fetch-site", "")
+        if origine is not None and origine.rstrip("/").lower() not in {f"http://{hote}".lower(), f"https://{hote}".lower()}:
+            return JSONResponse({"detail": "Requête refusée : elle ne vient pas de l'interface de Snappy Transcript."}, status_code=403)
+        if origine is None and site in ("cross-site", "same-site"):
+            return JSONResponse({"detail": "Requête refusée : elle ne vient pas de l'interface de Snappy Transcript."}, status_code=403)
+    reponse = await call_next(request)
+    for cle, valeur in ENTETES.items():
+        reponse.headers.setdefault(cle, valeur)
+    return reponse
+
+
 @app.exception_handler(ServiceError)
 def erreur_utilisateur(_: Request, exc: ServiceError) -> JSONResponse:
     """Erreur attendue (champ invalide, session absente…) : message en français, lisible tel quel par l'interface."""
